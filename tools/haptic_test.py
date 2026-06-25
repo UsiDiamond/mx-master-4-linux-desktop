@@ -99,7 +99,11 @@ def main() -> int:
             print(f"playing waveform 0x{idx:02X}")
             play(fd, idx)
         else:
-            demo = ["COMPLETED", "SUBTLE_COLLISION", "WAVE", "JINGLE"]
+            # NOTE: firmware only plays waveforms in its capability mask (HAPTIC
+            # fn 0x00). On the test unit the mask is 0x0001003C, so COMPLETED/
+            # WAVE/JINGLE are silently ignored. This raw test does NOT gate on the
+            # mask (the mx4d daemon does) — these four are supported on that unit.
+            demo = ["SUBTLE_COLLISION", "DAMP_COLLISION", "SHARP_COLLISION", "HAPPY_ALERT"]
             for name in demo:
                 idx = WAVEFORMS[name]
                 print(f"playing {name} (0x{idx:02X})")

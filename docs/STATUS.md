@@ -1,72 +1,73 @@
 # STATUS — read first when resuming
 
 Project: bring the MX Master 4 **Actions Ring** + **native haptics** to Linux on
-**KDE Plasma 6** and **LXQt**. Repo is private under the UsiDiamond GitHub account.
+**KDE Plasma 6** and **LXQt**. Private repo under the UsiDiamond GitHub account.
 
-Last updated: **2026-06-24** (foundational scaffolding; prepared for a system restart).
+Last updated: **2026-06-24** (Phases 1 & 2 complete + committed; Phase 3 integration next).
 
 ## Where things stand
 
 | Area | State |
 |---|---|
-| Repo + license + docs | **Done** — this repo, MIT, README + RESEARCH + ARCHITECTURE |
-| Device identified (real hw) | **Done** — MX Master 4, `046d:B042`, HID++ 4.5, Bolt rx `046d:C548`, device index 2, `/dev/hidraw11`, battery 55% |
-| **Fire haptics from Linux** | **PROVEN** — `tools/haptic_test.py` writes raw HID++ `0x19B0`/fn `0x40` to hidraw, exit 0, no root (session ACL). Feature index `0x0B` on this device |
-| Haptic intensity | Known — fn `0x20`, 0–100 (`haptic-level` reads 60) |
-| Actions Ring trigger | Mechanism known — divert `Haptic` control via `0x1B04`; **exact CID byte unconfirmed** (see next steps) |
-| Daemon `mx4d` | Not started |
-| Radial overlay | Not started |
-| Ambient-haptics sources | Not started (design done: notifications + focus-change + sounds) |
-| Config / KCM | Not started |
+| Repo + license + docs | **Done** |
+| Device identified (real hw) | **Done** — MX Master 4, `046d:B042`, HID++ 4.5, Bolt rx, device index 2. NOTE: hidraw node number is volatile across reboots/reconnects (seen as `hidraw11` then `hidraw7`); the daemon auto-detects, so don't rely on a fixed node |
+| **Phase 1 — daemon** (`daemon/`, Python) | **DONE + committed** (`9a72aa1`). Standalone raw-HID++, no Solaar dep. Verified on hardware: selftest buzzes; `notify-send`→haptic; D-Bus `PlayHaptic`/`SetLevel`; trigger divert+restore clean; 36 unit tests pass |
+| **Phase 2 — overlay** (`overlay/`, C++/Qt6) | **DONE + committed** (`640422d`). Builds clean vs Qt6 6.11 + LayerShellQt; `--demo` renders the ring on the live Plasma 6 Wayland session (screenshot-verified) + X11 cursor path |
+| **Phase 3 — integration + packaging** | **NEXT** (see below) |
+| Config UI / KCM | Not started (Phase 4) |
 
-## Decisions locked in (from the user)
+## Firmware capability finding (important, real)
 
-1. Targets **both KDE Plasma 6 and LXQt** (X11 makes LXQt the easier overlay path).
-2. Default radial action = **Task Manager / system monitor** (center/first slot;
-   auto-detect `plasma-systemmonitor` / `qps` / fallback).
-3. **Ambient haptics**: the mouse buzzes for **desktop notifications, system sounds,
-   and application-focus changes** (configurable waveform per event).
-4. Render **our own** overlay (Kando/JuhRadial style); do **not** reverse the mouse's
-   internal on-device ring in v1.
-5. Stack: **C++/Qt6 + QML + hidapi**; overlay must be C++ (no LayerShellQt Python
-   binding). Python OK only for early daemon prototyping.
+This MX Master 4 unit's HAPTIC (`0x19B0`) capability mask (fn `0x00`) = **`0x0001003C`**.
+Only these waveforms are supported: **SHARP_COLLISION, DAMP_COLLISION, SUBTLE_COLLISION,
+HAPPY_ALERT, and an undocumented `0x10`**. **`COMPLETED` (0x07), WAVE, JINGLE, etc. are
+NOT supported** — firmware silently ignores a play of an unsupported waveform. The daemon
+gates every play on this mask and falls back to the nearest supported waveform. Any code
+that fires haptics MUST check the mask, not assume the full 16-waveform table.
 
-## Next steps (in order) — RESUME HERE
+## D-Bus contracts (as built)
 
-1. **[2-min hardware check] Confirm the Actions Ring CID.** With the mouse on:
-   ```bash
-   solaar config 'MX Master 4' divert-keys Haptic Diverted   # or set via 0x1B04
-   solaar -dd 2>&1 | grep -i 'divert'   # then click the haptic panel
-   ```
-   Record the `diverted controls pressed: 0x…` byte → that's the trigger CID. Likely
-   `0x1A0`/action `0x0109`. Note it in this file. Remember to set it back to `Regular`.
-2. **Scaffold the CMake/ECM project** (`mx4d` daemon target, `mx4-radial` overlay
-   target, shared `libmx4hidpp`). Stub D-Bus interface.
-3. **Port the haptic path to C++** (hidapi): runtime feature-index resolution via ROOT
-   `0x0000`, `play_waveform`, `set_level`, capability bitmask check.
-4. **NotificationsSource** (monitor `org.freedesktop.Notifications`) → first ambient
-   haptic. Most portable, gives an immediate visible/feelable win on both DEs.
-5. **Trigger capture** (divert via `0x1B04`, read notifications) → fire a stub "menu
-   open" haptic.
-6. **Radial overlay v1** — center-screen LayerShellQt on Wayland; cursor-anchored
-   Qt::Tool on X11. Default menu with Task Manager center action.
-7. **Focus-change source** (X11 `_NET_ACTIVE_WINDOW`; KWin-script bridge on Wayland).
-8. **Config + KCM**, packaging (systemd user unit), then PipeWire sound source.
+| Process | Bus name | Object path | Interface / members |
+|---|---|---|---|
+| Daemon | `dev.usidiamond.mx4` | `/dev/usidiamond/mx4` | `dev.usidiamond.mx4.Daemon`: `PlayHaptic(s)->b`, `SetLevel(i)->b`; signals `TriggerPressed()`, `TriggerReleased()` |
+| Overlay | `dev.usidiamond.mx4.Overlay` | `/dev/usidiamond/mx4/Overlay` | `dev.usidiamond.mx4.Overlay`: `Show(s menuId)`, `Hide()`; signal `ActionChosen(s)` |
 
-## Gotchas already discovered (don't relearn these)
+(Distinct bus names so daemon + overlay co-run.) Overlay calls `Daemon.PlayHaptic` on
+hover/commit (graceful no-op if daemon absent). In `--demo` the overlay does not register
+its service (stays standalone).
 
-- Solaar **CLI** `haptic-play` is broken (`TypeError: Unable to marshal str as an
-  array`). Don't depend on it — send the packet directly. The feature itself is fine.
-- Feature **index** (`0x0B`) is per-device; resolve at runtime, don't hardcode outside
-  the smoke test.
-- Wayland: no global cursor pos, no absolute placement → center-screen overlay unless
-  you ship a C++ KWin plugin. X11/LXQt has neither limit.
+## Next steps — Phase 3 (integration + packaging) — RESUME HERE
+
+1. **Wire daemon → overlay**: on `TriggerPressed` (Actions Ring panel), the daemon ensures
+   the overlay is running and calls `Overlay.Show(menuId)`. Lifecycle decision: run the
+   overlay as a second always-on (hidden) systemd user service, shown on demand.
+2. **Packaging**: top-level installer (install.sh or CMake superproject) — daemon (venv or
+   `~/.local`), overlay binary, **two systemd user units** (`mx4desktop.service` daemon +
+   `mx4-overlay.service` overlay), a **udev rule** granting hidraw access (robust beyond the
+   session ACL), and a default config.
+3. **End-to-end test**: daemon `ShowMenu` path → overlay shows → select center → launches
+   the task manager (`plasma-systemmonitor`), with haptic ticks. (Physical panel tap remains
+   the one manual verification — `parse_pressed_cids` is unit-tested against synthetic
+   `divertedButtonsEvent` reports; divert/restore is hardware-confirmed.)
+4. **Phase 4 (later)**: config GUI — a portable Qt/QML settings window (Plasma + LXQt) and/or
+   a Plasma KCM, editing `~/.config/mx4desktop/config.ini`. Plus the native-Wayland focus
+   KWin-script bridge.
+
+## Gotchas already discovered (don't relearn)
+
+- Firmware capability mask gates waveforms (see above). `COMPLETED` is unsupported here.
+- hidraw node number is volatile — auto-detect; `tools/haptic_test.py` honors `MX4_HIDRAW`.
+- `BecomeMonitor` for notifications MUST run on a **private** D-Bus connection, or it turns
+  the shared session connection into a receive-only monitor and destroys the daemon's own
+  bus name.
+- All blocking HID I/O must be off the GLib mainloop thread (use the daemon's worker queue),
+  or notification dispatch stalls and `set_level` times out.
+- Solaar CLI `haptic-play` is broken (marshal TypeError) — irrelevant, we send packets raw.
+- Wayland: overlay is center-screen (no cursor anchoring without a KWin effect plugin);
+  X11/LXQt anchors at the cursor.
 - Overlay must use KWin window type `toolbar` (not `dock`) or it gets no keyboard.
-- `/dev/hidraw11` is accessible to the active-session user via a udev **ACL** (the `+`
-  in `crw-rw----+`); not `plugdev` membership. A shipped install needs its own udev
-  rule for robustness.
 
 ## Local checkout
 
-`/home/magus/GitHub/mx-master-4-desktop` (on the primary dev box). Remote:
-`UsiDiamond/mx-master-4-desktop` (private).
+`/home/magus/GitHub/mx-master-4-desktop`. Remote `UsiDiamond/mx-master-4-desktop` (private).
+Commits: `0e2e565` scaffold, `640422d` overlay, `9a72aa1` daemon.

@@ -66,6 +66,13 @@ Reverse-engineered and merged into mainline Solaar (PR
 
 Indices are sparse (jumps from `0x0E` to `0x1B`) and gated by the fn-`0x00` bitmask.
 
+> **Real finding (test unit, 2026-06-24):** the capability mask read back as
+> `0x0001003C` — i.e. only `SHARP_COLLISION`, `DAMP_COLLISION`, `SUBTLE_COLLISION`,
+> `HAPPY_ALERT`, and an undocumented bit `0x10` are supported. `COMPLETED` (0x07),
+> `WAVE`, `JINGLE`, etc. are **silently ignored** by firmware when played. Always
+> read the mask and gate (or fall back to a supported waveform) — never assume the
+> full 16-entry table. The daemon does this; `tools/haptic_test.py` does not (raw).
+
 ### On-wire "play waveform" report (PROVEN on this machine)
 
 ```
