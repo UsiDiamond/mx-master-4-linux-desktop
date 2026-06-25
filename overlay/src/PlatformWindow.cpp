@@ -1,0 +1,132 @@
+#include "PlatformWindow.h"
+
+#include <QCursor>
+#include <QGuiApplication>
+#include <QLoggingCategory>
+#include <QQuickView>
+#include <QQuickWindow>
+#include <QScreen>
+
+#ifdef MX4_HAVE_LAYERSHELL
+#include <LayerShellQt/Window>
+#endif
+
+Q_LOGGING_CATEGORY(lcPlatform, "mx4.platform")
+
+namespace mx4 {
+
+PlatformWindow::PlatformWindow(QObject *parent)
+    : QObject(parent)
+{
+    const QString platform = QGuiApplication::platformName();
+    if (platform.startsWith(QLatin1String("wayland"))) {
+#ifdef MX4_HAVE_LAYERSHELL
+        m_backend = Backend::WaylandLayerShell;
+#else
+        qCWarning(lcPlatform)
+            << "Wayland session but built without LayerShellQt; using fallback";
+        m_backend = Backend::Fallback;
+#endif
+    } else if (platform == QLatin1String("xcb")) {
+        m_backend = Backend::X11Cursor;
+    } else {
+        m_backend = Backend::Fallback;
+    }
+    qCInfo(lcPlatform) << "platform=" << platform
+                       << "backend=" << static_cast<int>(m_backend);
+}
+
+void PlatformWindow::configure(QQuickView *view, const QSize &desiredSize)
+{
+    if (!view) {
+        return;
+    }
+    // Common: frameless + translucent so the QML ring floats on nothing.
+    view->setColor(Qt::transparent);
+    view->setFlag(Qt::FramelessWindowHint, true);
+
+    switch (m_backend) {
+    case Backend::WaylandLayerShell:
+        configureWayland(view, desiredSize);
+        break;
+    case Backend::X11Cursor:
+        configureX11(view);
+        break;
+    case Backend::Fallback:
+        configureFallback(view);
+        break;
+    }
+}
+
+void PlatformWindow::configureWayland(QQuickWindow *window, const QSize &desiredSize)
+{
+#ifdef MX4_HAVE_LAYERSHELL
+    // Window::get() creates (and parents to the QWindow) the layer-shell
+    // wrapper; ownership stays with the QWindow, so no manual delete.
+    LayerShellQt::Window *ls = LayerShellQt::Window::get(window);
+    if (!ls) {
+        qCWarning(lcPlatform) << "LayerShellQt::Window::get returned null; "
+                                 "falling back to plain window";
+        configureFallback(window);
+        return;
+    }
+    ls->setLayer(LayerShellQt::Window::LayerOverlay);
+    // No anchors -> compositor centers the surface (Wayland can't place at the
+    // cursor; this is the expected behaviour, see header).
+    ls->setAnchors(LayerShellQt::Window::Anchors());
+    ls->setExclusiveZone(0);
+    // OnDemand: the surface CAN receive keyboard focus (needed for Escape /
+    // arrows). KeyboardInteractivityNone would leave us deaf to keys.
+    ls->setKeyboardInteractivity(
+        LayerShellQt::Window::KeyboardInteractivityOnDemand);
+    ls->setActivateOnShow(true);
+    ls->setScope(QStringLiteral("mx4-radial"));
+    ls->setCloseOnDismissed(false);
+    ls->setDesiredSize(desiredSize);
+    qCInfo(lcPlatform) << "configured Wayland layer-shell overlay (centered)";
+#else
+    Q_UNUSED(desiredSize);
+    configureFallback(window);
+#endif
+}
+
+void PlatformWindow::configureX11(QQuickWindow *window)
+{
+    // Qt::Tool keeps it off the taskbar; top-most; bypass WM decorations.
+    window->setFlag(Qt::Tool, true);
+    window->setFlag(Qt::WindowStaysOnTopHint, true);
+    window->setFlag(Qt::X11BypassWindowManagerHint, false);
+    qCInfo(lcPlatform) << "configured X11 cursor-anchored overlay";
+}
+
+void PlatformWindow::configureFallback(QQuickWindow *window)
+{
+    window->setFlag(Qt::Tool, true);
+    window->setFlag(Qt::WindowStaysOnTopHint, true);
+    qCInfo(lcPlatform) << "configured fallback frameless overlay";
+}
+
+void PlatformWindow::positionForShow(QQuickWindow *window, const QSize &desiredSize)
+{
+    if (!window) {
+        return;
+    }
+    if (m_backend == Backend::X11Cursor || m_backend == Backend::Fallback) {
+        // Center the window ON the cursor (X11 can read the global pointer).
+        const QPoint cursor = QCursor::pos();
+        QScreen *screen = QGuiApplication::screenAt(cursor);
+        QRect bounds = screen ? screen->geometry()
+                              : QGuiApplication::primaryScreen()->geometry();
+        QPoint topLeft(cursor.x() - desiredSize.width() / 2,
+                       cursor.y() - desiredSize.height() / 2);
+        // Keep fully on-screen.
+        topLeft.setX(qBound(bounds.left(), topLeft.x(),
+                            bounds.right() - desiredSize.width()));
+        topLeft.setY(qBound(bounds.top(), topLeft.y(),
+                            bounds.bottom() - desiredSize.height()));
+        window->setPosition(topLeft);
+    }
+    // Wayland: the compositor centers; nothing to do.
+}
+
+} // namespace mx4

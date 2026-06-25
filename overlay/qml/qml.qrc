@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/qml">
+        <file>RadialMenu.qml</file>
+        <file>Segment.qml</file>
+    </qresource>
+</RCC>
