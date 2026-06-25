@@ -78,6 +78,9 @@ class Mx4Daemon:
         self._overlay: Optional[OverlayController] = None
         self._mainloop = None
         self._shutdown_done = False
+        # True when Solaar owns the device: we skip all HID++ request/response
+        # (detection, capability read, set_level) and do writes-only haptics.
+        self._coexist = False
 
         # Device-I/O worker: ALL haptic writes (which may block on a HID++
         # round-trip) run here, never on the GLib/dbus mainloop thread. The
@@ -101,14 +104,53 @@ class Mx4Daemon:
         # the subsequent device probe blocks/retries.
         divert = self._resolve_divert() if self.enable_trigger else False
 
-        self.device = find_mx_master_4()
-        self.haptics = HapticEngine(
-            self.device.transport,
-            self.device.haptic_index,
-            min_interval=self.config.debounce_interval,
-        )
-        # Read capabilities once up front (cached; gates all plays).
-        self.haptics.read_capabilities()
+        # Coexist when Solaar is running and we are not forced standalone. Solaar
+        # holds the receiver as the HID++ software, so our request/response probes
+        # would get a broken pipe; we skip them and do writes-only haptics.
+        self._coexist = self.config.divert_panel != DIVERT_TRUE and solaar_running()
+        if self._coexist:
+            import os
+
+            from .device import (
+                KNOWN_CAPABILITY_MASK,
+                KNOWN_DEVICE_INDEX,
+                KNOWN_HAPTIC_INDEX,
+                KNOWN_REPROG_INDEX,
+                find_mx_master_4_coexist,
+            )
+
+            def _envint(name: str, default: int) -> int:
+                raw = os.environ.get(name)
+                return int(raw, 0) if raw else default
+
+            self.device = find_mx_master_4_coexist(
+                device_index=_envint("MX4_DEVICE_INDEX", KNOWN_DEVICE_INDEX),
+                haptic_index=_envint("MX4_HAPTIC_INDEX", KNOWN_HAPTIC_INDEX),
+                reprog_index=_envint("MX4_REPROG_INDEX", KNOWN_REPROG_INDEX),
+                hidraw=os.environ.get("MX4_HIDRAW"),
+            )
+            mask = _envint("MX4_CAPABILITY_MASK", KNOWN_CAPABILITY_MASK)
+            self.haptics = HapticEngine(
+                self.device.transport,
+                self.device.haptic_index,
+                min_interval=self.config.debounce_interval,
+                preset_capabilities=mask,
+            )
+            logger.info(
+                "Solaar coexist: skipped HID++ detection + capability read "
+                "(preset mask 0x%08X); haptics writes-only, Solaar owns settings "
+                "+ trigger",
+                mask,
+            )
+        else:
+            self.device = find_mx_master_4()
+            self.haptics = HapticEngine(
+                self.device.transport,
+                self.device.haptic_index,
+                min_interval=self.config.debounce_interval,
+            )
+            # Read capabilities once up front (cached; gates all plays).
+            self.haptics.read_capabilities()
 
         if self.enable_trigger:
             self.trigger = TriggerWatcher(
@@ -253,6 +295,10 @@ class Mx4Daemon:
         Failures are logged at debug WITHOUT a traceback so the log is not
         spammed on the hot path.
         """
+        if self._coexist:
+            # set_level is a HID++ round-trip; under Solaar it would contend.
+            # Solaar owns the level here — skip and let plays use it as-is.
+            return
         level = max(0, min(100, int(level)))
         if not force and self._last_level == level:
             return

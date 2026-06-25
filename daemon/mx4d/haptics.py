@@ -96,6 +96,7 @@ class HapticEngine:
         haptic_index: int,
         *,
         min_interval: float = 0.12,
+        preset_capabilities: Optional[int] = None,
     ) -> None:
         """Bind to a device's haptic feature.
 
@@ -107,7 +108,10 @@ class HapticEngine:
         self.transport = transport
         self.haptic_index = haptic_index
         self.min_interval = min_interval
-        self._capabilities: Optional[int] = None
+        # When preset (Solaar coexist), the capability mask is supplied without a
+        # request/response read (which would contend with a running Solaar), so
+        # play() can gate without ever doing a blocking HID++ round-trip.
+        self._capabilities: Optional[int] = preset_capabilities
         self._last_play = 0.0
         self._lock = threading.Lock()
 

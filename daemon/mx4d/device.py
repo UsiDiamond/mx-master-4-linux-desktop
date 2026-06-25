@@ -13,6 +13,8 @@ from __future__ import annotations
 import glob
 import logging
 import os
+import re
+import subprocess
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -284,4 +286,88 @@ def find_mx_master_4() -> MX4Device:
         "MX Master 4 not found. Set MX4_HIDRAW and MX4_DEVICE_INDEX to point "
         "at the receiver's HID++ hidraw node, e.g. MX4_HIDRAW=/dev/hidraw7 "
         "MX4_DEVICE_INDEX=2."
+    )
+
+
+# --- Solaar coexist mode ---------------------------------------------------
+#
+# When Solaar is running it owns the receiver as the registered HID++ software.
+# Our HID++ *request/response* probes (ping, getFeature, read-capabilities) then
+# get a broken pipe — but fire-and-forget *writes* (the haptic "play" packet)
+# still reach the device. So in coexist mode we do NOT probe: we take the device
+# coordinates as given (these are firmware-stable for the model and overridable
+# via env) and operate writes-only. Solaar owns detection, settings and the
+# trigger; we just buzz the motor and read notifications passively.
+KNOWN_DEVICE_INDEX = 2
+KNOWN_HAPTIC_INDEX = 0x0B
+KNOWN_REPROG_INDEX = 0x0D
+KNOWN_CAPABILITY_MASK = 0x0001003C
+
+
+def bolt_node_from_solaar(timeout: float = 20.0) -> Optional[str]:
+    """Return the Bolt receiver's hidraw node by parsing ``solaar show``.
+
+    Solaar already resolved the correct HID++ interface node, so this is the
+    authoritative way to find it without our own (contending) probing. Returns
+    ``None`` if Solaar is unavailable or the Bolt receiver is not listed.
+    """
+    try:
+        out = subprocess.run(
+            ["solaar", "show"], capture_output=True, text=True, timeout=timeout
+        ).stdout
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.debug("solaar show failed: %s", exc)
+        return None
+    in_bolt = False
+    for line in out.splitlines():
+        low = line.lower()
+        if "receiver" in low and ":" not in low:
+            in_bolt = "bolt" in low
+        if in_bolt:
+            match = re.search(r"device path\s*:\s*(/dev/hidraw\d+)", low)
+            if match:
+                return match.group(1)
+    return None
+
+
+def find_mx_master_4_coexist(
+    *,
+    device_index: int = KNOWN_DEVICE_INDEX,
+    haptic_index: int = KNOWN_HAPTIC_INDEX,
+    reprog_index: int = KNOWN_REPROG_INDEX,
+    hidraw: Optional[str] = None,
+) -> MX4Device:
+    """Bind to the MX Master 4 WITHOUT any HID++ probing (Solaar coexist).
+
+    Resolves the receiver node from ``hidraw`` (override), else ``solaar show``,
+    else the first Bolt receiver node in sysfs. Opens the transport (which only
+    starts a passive reader) and returns an :class:`MX4Device` with the given
+    coordinates. No request/response is performed, so this never contends with a
+    running Solaar.
+    """
+    node = hidraw or bolt_node_from_solaar()
+    if not node:
+        nodes = list_receiver_nodes()
+        node = nodes[0] if nodes else None
+    if not node:
+        raise RuntimeError(
+            "Solaar coexist: could not resolve the Bolt receiver hidraw node; "
+            "set MX4_HIDRAW=/dev/hidrawN"
+        )
+    transport = HidppTransport(node, device_index, timeout=0.5)
+    logger.info(
+        "Solaar coexist: using %s index %d (haptic=0x%02X reprog=0x%02X), "
+        "writes-only; Solaar owns the device",
+        node,
+        device_index,
+        haptic_index,
+        reprog_index,
+    )
+    return MX4Device(
+        transport=transport,
+        path=node,
+        device_index=device_index,
+        name="MX Master 4 (Solaar coexist)",
+        haptic_index=haptic_index,
+        reprog_index=reprog_index,
     )
