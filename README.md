@@ -84,33 +84,47 @@ no pip at runtime**); Qt6 (Core Gui Qml Quick DBus) + LayerShellQt + CMake to bu
 the overlay.
 
 ```bash
-packaging/install.sh
+packaging/install.sh                       # build + install under ~/.local
+packaging/install.sh --enable-autostart    # …and start mx4d at every login
 ```
 
-This is **idempotent** and installs entirely under your home, except one `sudo` step
-for the udev rule:
+This is **idempotent** and **init-agnostic** — see **[docs/INSTALL.md](docs/INSTALL.md)**
+for the full per-distro guide (Gentoo/OpenRC, Arch, Debian/Ubuntu, Fedora, and
+from-source). It installs entirely under your home, except one `sudo` step for the
+udev rule:
 
-- builds the overlay with CMake → `~/.local/bin/mx4-radial`
+- builds the overlay + config GUI with CMake → `~/.local/bin/mx4-radial`, `mx4-config`
 - copies the daemon package → `~/.local/lib/mx4desktop/mx4d/` + a `~/.local/bin/mx4d`
   launcher that sets `PYTHONPATH` and runs the system python's `python -m mx4d`
-- installs both systemd **user** units → `~/.config/systemd/user/`
+- installs a portable **XDG autostart** template (Exec=`mx4d`) → enable with
+  `--enable-autostart` (only the daemon needs autostart; it lazy-launches the overlay)
+- **detects the init system**: on systemd it *also* installs the systemd **user**
+  units; on **OpenRC / runit / s6 / …** it relies on the XDG autostart entry and never
+  calls `systemctl`
+- **detects the desktop**: installs the KWin focus-bridge **only on Plasma**; on
+  LXQt/X11 it is skipped (focus haptics are native there)
 - installs the udev rule → `/etc/udev/rules.d/70-mx-master-4.rules` (**needs sudo** —
   the only privileged step; `TAG+="uaccess"`, scoped to Logitech VID `046d`, not
-  world-writable)
+  world-writable; skip with `--no-udev`)
 - writes a default `~/.config/mx4desktop/config.ini` if none exists
 
-The installer **does not enable autostart**. Start ad hoc:
+The installer **does not enable autostart** unless you pass `--enable-autostart`.
+Start ad hoc:
 
 ```bash
+# systemd:
 systemctl --user start mx4desktop.service mx4-overlay.service
-# or, in a terminal:
-mx4d --verbose      # daemon
+# OpenRC / no systemd user manager (this is what install.sh prints there):
+mx4d --verbose &    # daemon; lazy-launches the overlay
+# in either case the overlay can also be run by hand:
 mx4-radial          # overlay (service mode); --demo shows the ring standalone
 ```
 
 ### Enable autostart (opt-in)
 
 ```bash
+packaging/install.sh --enable-autostart                          # portable (any init)
+# or, on systemd:
 systemctl --user enable --now mx4desktop.service mx4-overlay.service
 ```
 
@@ -253,9 +267,11 @@ python3 tools/haptic_test.py COMPLETED  # play one named waveform
 ```
 daemon/        Python mx4d daemon (raw HID++, haptics, sources, trigger, overlay wiring)
 overlay/       C++/Qt6 + LayerShellQt radial menu overlay
-packaging/     install.sh / uninstall.sh, systemd user units, udev rule
+config-ui/     C++/Qt6 + QML settings GUI (mx4-config; no KF6)
+packaging/     init-agnostic install.sh/uninstall.sh, XDG autostart, systemd user
+               units, udev rule, KWin focus-bridge (Plasma-only), solaar/ helper
 tools/         standalone raw-HID++ haptic smoke test
-docs/          ARCHITECTURE.md, RESEARCH.md, STATUS.md (read STATUS first)
+docs/          INSTALL.md (per-distro), ARCHITECTURE.md, RESEARCH.md, STATUS.md
 ```
 
 ## License

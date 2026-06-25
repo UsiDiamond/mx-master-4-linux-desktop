@@ -1,0 +1,10 @@
+mx-master-4-desktop (0.1.0-1) unstable; urgency=medium
+
+  * Initial Debian/Ubuntu packaging.
+    - Builds the mx4-radial overlay and mx4-config GUI with CMake + Qt6.
+    - Installs the mx4d Python daemon onto the system python (no venv/pip)
+      via a /usr/bin/mx4d launcher.
+    - Ships the udev rule, portable XDG autostart entry, systemd user units,
+      and the Plasma-Wayland KWin focus-bridge script (as data, not enabled).
+
+ -- UsiDiamond <noreply@usidiamond.dev>  Wed, 24 Jun 2026 00:00:00 +0000

@@ -1,0 +1,19 @@
+[Desktop Entry]
+Type=Application
+Name=MX Master 4 Desktop
+GenericName=MX Master 4 haptics & Actions Ring daemon
+Comment=Native haptics + Actions Ring radial menu for the Logitech MX Master 4
+# Portable, init-agnostic autostart: this runs the mx4d daemon at login on ANY
+# desktop (Plasma, LXQt, ...) and ANY init (systemd, OpenRC, runit, s6, ...).
+# The daemon lazy-launches the radial overlay on demand, so ONLY the daemon
+# needs to autostart. On a per-user ~/.local install, mx4d is on PATH at
+# ~/.local/bin/mx4d; the package install puts it in /usr/bin/mx4d.
+Exec=mx4d
+Icon=input-mouse
+Terminal=false
+# KDE: start in phase 2 (after the panel/session services), harmless elsewhere.
+X-KDE-autostart-phase=2
+# Only show as an autostart entry, never in the application menu.
+NoDisplay=true
+Categories=Utility;
+Keywords=mouse;logitech;mx;haptics;actions ring;

@@ -1,0 +1,158 @@
+# Maintainer: UsiDiamond <noreply@usidiamond.dev>
+#
+# mx-master-4-desktop — native haptics + Actions Ring radial menu for the
+# Logitech MX Master 4 on Linux. Three components:
+#   * mx4d        — a dependency-light Python HID++ daemon (system python, no venv)
+#   * mx4-radial  — a Qt6/QML radial-menu overlay (Wayland layer-shell or X11)
+#   * mx4-config  — a Qt6/QML settings GUI
+#
+# INIT-AGNOSTIC: ships the portable XDG autostart entry (the daemon) on every
+# init, plus systemd user units as a bonus for systemd boxes. The KWin
+# focus-bridge is shipped as DATA only (Plasma-Wayland opt-in); Plasma is NOT a
+# hard dependency.
+
+pkgname=mx-master-4-desktop
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Native haptics + Actions Ring radial menu for the Logitech MX Master 4 (Plasma 6 & LXQt)"
+arch=('x86_64')
+url="https://github.com/UsiDiamond/mx-master-4-desktop"
+license=('MIT')
+
+# Runtime:
+#  - daemon runs on the SYSTEM python (no venv/pip): python + python-dbus +
+#    python-gobject (gi) + python-xlib.
+#  - overlay/config GUI: qt6-base + qt6-declarative (QtQuick + QuickControls2
+#    + Shapes all ship inside qt6-declarative on Arch) + layer-shell-qt.
+#  - qt6-wayland provides the Wayland platform plugin the layer-shell overlay
+#    needs at runtime on a Wayland session.
+depends=(
+    'python'
+    'python-dbus'
+    'python-gobject'
+    'python-xlib'
+    'qt6-base'
+    'qt6-declarative'
+    'layer-shell-qt'
+    'qt6-wayland'
+)
+
+# Build:
+#  - cmake + ninja drive both C++/Qt6 subprojects (C++17, gcc).
+#  - extra-cmake-modules (ECM) is OPTIONAL upstream (CMake falls back to
+#    GNUInstallDirs) but we list it so the install lands in KDE prefixes; it is
+#    cheap and always present in [extra].
+makedepends=(
+    'cmake'
+    'ninja'
+    'extra-cmake-modules'
+    'gcc'
+)
+
+# Optional desktop-environment integration. None of these are required to build
+# or run the core; they unlock specific opt-in features.
+optdepends=(
+    'pulseaudio: system-sound ambient haptic source via pactl'
+    'pipewire: system-sound ambient haptic source via pw-mon'
+    'kwin: Plasma-Wayland native focus bridge (ship-as-data KWin script, opt-in)'
+    'solaar: alternative HID++ rule helpers (packaging/solaar, run manually)'
+)
+
+install="${pkgname}.install"
+
+# Build from the repo checkout. For an AUR submission swap this for a tagged
+# tarball or a git+...#tag= source and a real sha256/SKIP; the build-test in
+# this tree drives makepkg against the working copy via a symlinked source.
+source=("${pkgname}-${pkgver}.tar.gz")
+sha256sums=('SKIP')
+
+_libdir="/usr/lib/mx4desktop"
+
+build() {
+    cd "${srcdir}/${pkgname}-${pkgver}"
+
+    # --- overlay (mx4-radial) ---
+    cmake -S overlay -B build-overlay -G Ninja \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DCMAKE_INSTALL_PREFIX=/usr
+    cmake --build build-overlay
+
+    # --- config GUI (mx4-config) ---
+    cmake -S config-ui -B build-config -G Ninja \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DCMAKE_INSTALL_PREFIX=/usr
+    cmake --build build-config
+}
+
+package() {
+    cd "${srcdir}/${pkgname}-${pkgver}"
+
+    # --- 1. C++/Qt6 binaries + the config .desktop (CMake install rules) ---
+    #   mx4-radial -> /usr/bin/mx4-radial
+    #   mx4-config -> /usr/bin/mx4-config
+    #   mx4-config.desktop -> /usr/share/applications/
+    DESTDIR="${pkgdir}" cmake --install build-overlay
+    DESTDIR="${pkgdir}" cmake --install build-config
+
+    # --- 2. daemon python package (system python, NO venv/pip) ---
+    # Drop the package tree under /usr/lib/mx4desktop/mx4d so `python -m mx4d`
+    # resolves via the launcher's PYTHONPATH. Strip any __pycache__/*.pyc.
+    install -d "${pkgdir}${_libdir}/mx4d"
+    ( cd daemon/mx4d
+      find . -name '__pycache__' -prune -o -name '*.pyc' -prune -o -type f -print0 |
+      while IFS= read -r -d '' f; do
+          install -Dm644 "$f" "${pkgdir}${_libdir}/mx4d/${f}"
+      done )
+
+    # --- 3. daemon launcher (mx4d) -> /usr/bin/mx4d ---
+    # System python, PYTHONPATH at the installed package tree, no virtualenv.
+    install -d "${pkgdir}/usr/bin"
+    cat > "${pkgdir}/usr/bin/mx4d" <<EOF
+#!/usr/bin/env bash
+# mx4d launcher (system python, no venv). PYTHONPATH points at the installed
+# daemon package so \`python -m mx4d\` resolves.
+export PYTHONPATH="${_libdir}\${PYTHONPATH:+:\$PYTHONPATH}"
+exec /usr/bin/python3 -m mx4d "\$@"
+EOF
+    chmod 755 "${pkgdir}/usr/bin/mx4d"
+
+    # --- 4. udev rule (uaccess, Logitech VID 046d) -> /usr/lib/udev/rules.d ---
+    install -Dm644 packaging/udev/70-mx-master-4.rules \
+        "${pkgdir}/usr/lib/udev/rules.d/70-mx-master-4.rules"
+
+    # --- 5. portable XDG autostart (daemon only) -> /etc/xdg/autostart ---
+    # Exec=mx4d resolves on PATH (/usr/bin/mx4d). The daemon lazy-launches the
+    # overlay; we do NOT autostart mx4-radial.
+    install -Dm644 packaging/autostart/mx4desktop.desktop \
+        "${pkgdir}/etc/xdg/autostart/mx4desktop.desktop"
+
+    # --- 6. systemd user units (systemd-only; harmless data on other inits) ---
+    # The packaged units reference %h/.local/bin/...; rewrite to /usr/bin for the
+    # system-package layout so `systemctl --user enable` works out of the box.
+    install -d "${pkgdir}/usr/lib/systemd/user"
+    for unit in mx4desktop.service mx4-overlay.service; do
+        sed 's,%h/\.local/bin/,/usr/bin/,g' "packaging/systemd/${unit}" \
+            > "${pkgdir}/usr/lib/systemd/user/${unit}"
+        chmod 644 "${pkgdir}/usr/lib/systemd/user/${unit}"
+    done
+
+    # --- 7. KWin focus-bridge script (DATA ONLY; Plasma-Wayland opt-in) ---
+    # Shipped as data so users on Plasma can enable it manually; never enabled,
+    # never makes Plasma a hard dependency (EnabledByDefault=false in metadata).
+    install -d "${pkgdir}/usr/share/kwin/scripts/mx4-focus-bridge"
+    cp -r packaging/kwin/. "${pkgdir}/usr/share/kwin/scripts/mx4-focus-bridge/"
+    find "${pkgdir}/usr/share/kwin/scripts/mx4-focus-bridge" -type f -exec chmod 644 {} +
+    find "${pkgdir}/usr/share/kwin/scripts/mx4-focus-bridge" -type d -exec chmod 755 {} +
+
+    # --- 8. Solaar helper files (data only; user runs setup-solaar.sh) ---
+    install -d "${pkgdir}/usr/share/mx4desktop/solaar"
+    install -Dm644 packaging/solaar/mx4-rules.yaml \
+        "${pkgdir}/usr/share/mx4desktop/solaar/mx4-rules.yaml"
+    install -Dm644 packaging/solaar/README.md \
+        "${pkgdir}/usr/share/mx4desktop/solaar/README.md"
+    install -Dm755 packaging/solaar/setup-solaar.sh \
+        "${pkgdir}/usr/share/mx4desktop/solaar/setup-solaar.sh"
+
+    # --- 9. license ---
+    install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

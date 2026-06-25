@@ -1,0 +1,52 @@
+Source: mx-master-4-desktop
+Section: utils
+Priority: optional
+Maintainer: UsiDiamond <noreply@usidiamond.dev>
+Build-Depends: debhelper-compat (= 13),
+               cmake (>= 3.16),
+               ninja-build,
+               g++,
+               pkg-config,
+               qt6-base-dev,
+               qt6-declarative-dev,
+               liblayershellqtinterface-dev,
+               python3 (>= 3.11)
+Standards-Version: 4.6.2
+Homepage: https://github.com/UsiDiamond/mx-master-4-desktop
+Rules-Requires-Root: no
+
+Package: mx-master-4-desktop
+Architecture: any
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+         python3 (>= 3.11),
+         python3-dbus,
+         python3-gi,
+         python3-xlib,
+         libqt6quickcontrols2-6,
+         qml6-module-qtquick,
+         qml6-module-qtquick-controls,
+         qml6-module-qtquick-shapes,
+         qml6-module-qtquick-window,
+         qml6-module-qtquick-layouts
+Recommends: liblayershellqtinterface5
+Suggests: pulseaudio-utils | pipewire-bin,
+          solaar
+Description: Native haptics and Actions Ring for the Logitech MX Master 4
+ mx-master-4-desktop adds native HID++ haptic feedback and an on-demand
+ "Actions Ring" radial menu overlay for the Logitech MX Master 4 mouse on
+ Linux desktops (Plasma 6 Wayland, LXQt, and other X11/Wayland environments).
+ .
+ It ships three components:
+  * mx4d   - a Python daemon (run on the system python, no venv/pip) that
+             talks raw HID++ to the mouse, drives the haptic engine, and
+             diverts the Actions Ring button to show the overlay;
+  * mx4-radial - a Qt6/QML radial-menu overlay (Wayland layer-shell when
+             available, X11 otherwise), lazy-launched by the daemon;
+  * mx4-config - a Qt6/QML settings GUI for haptics, ambient sources and the
+             radial menu.
+ .
+ The package is init-agnostic: it ships a portable XDG autostart entry that
+ starts the daemon on any init (systemd, OpenRC, runit, s6) and additionally
+ provides systemd user units. A Plasma-Wayland KWin focus-bridge script is
+ shipped as data (never enabled, never pulls Plasma as a hard dependency).
