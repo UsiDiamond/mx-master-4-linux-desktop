@@ -78,8 +78,15 @@ signals:
 private:
     void setHighlightedIndex(int idx);
     void launch(const MenuItem &item);
-    // Shared commit tail: confirm tick, launch, ActionChosen, dismiss.
+    // Shared commit tail: launch/navigate per item.actionType. command/noop
+    // launch + dismiss; "submenu" drills in; "back" returns to the parent.
     void commitItem(const MenuItem &item);
+    // Swap the live menu to `config`. asSubmenu replaces the center hub with a
+    // "Back" item so any sub-ring can return to its parent.
+    void applyMenu(const MenuConfig &config, bool asSubmenu);
+    // Drill into / return from a nested menu (no dismiss).
+    void enterSubmenu(const QString &submenuId);
+    void goBack();
 
     DaemonHaptics *m_haptics; // not owned
     MenuItem m_center;
@@ -87,6 +94,8 @@ private:
     QVariantList m_segments;   // QML-friendly mirror of m_items
     int m_highlightedIndex = -1;
     bool m_pointerEngaged = false;
+    QString m_currentMenuId;        // id of the menu currently shown
+    QStringList m_menuStack;        // ancestor menu ids (empty at the root)
 };
 
 } // namespace mx4

@@ -177,6 +177,21 @@ center/label = Task Manager
 center/icon = utilities-system-monitor
 default_menu = default     ; menu id the daemon passes to Overlay.Show()
 
+; A slot — or the center — can open ANOTHER ring instead of launching, with a
+; "submenu" key naming another [radial:<id>] section. The overlay shows a "Back"
+; hub at the center of any opened sub-ring, so drilling in/out needs no Back slot.
+;   [radial]
+;   center/submenu = apps        ; the center opens the curated "apps" ring
+;   ...
+;   [radial:apps]                ; a nested ring (favorites, etc.)
+;   count = 3
+;   1/label = Firefox    1/icon = firefox             1/command = firefox
+;   2/label = Terminal   2/icon = utilities-terminal  2/command = qterminal
+;   3/label = System     3/icon = applications-system 3/submenu = apps-system
+;   [radial:apps-system]         ; a deeper ring opened by slot 3 above
+;   count = 1
+;   1/label = Task Manager  1/icon = utilities-system-monitor  1/command = plasma-systemmonitor
+
 [overlay]
 command = mx4-radial       ; how the daemon lazily launches the overlay
                            ; (bare name on PATH, or an absolute path for dev)
@@ -184,7 +199,9 @@ command = mx4-radial       ; how the daemon lazily launches the overlay
 
 The radial **center action defaults to the auto-detected Task Manager**:
 `plasma-systemmonitor` → `qps` / `lxtask` (LXQt) → `gnome-system-monitor` →
-`ksysguard` → `xterm -e htop`, first present on `PATH`.
+`ksysguard` → `xterm -e htop`, first present on `PATH`. Point `center/submenu` at
+a `[radial:<id>]` section to make the center open a **nested ring** (e.g. an
+"Applications" menu) instead; sub-rings get a **Back** hub automatically.
 
 ### Settings GUI
 

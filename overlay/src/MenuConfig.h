@@ -11,17 +11,20 @@ class QSettings;
 namespace mx4 {
 
 /**
- * One radial slot (or the center hub). actionType selects how actionCommand is
- * interpreted; for v1 every type ultimately resolves to an argv launched with
- * QProcess (no shell), so the model stays simple and injection-free.
+ * One radial slot (or the center hub). actionType selects how the item acts:
+ *   "command" -> launch argv with QProcess (no shell, injection-free);
+ *   "submenu" -> open the nested menu named submenuId (drill down a ring);
+ *   "back"    -> return to the parent menu (the center of any sub-ring);
+ *   "noop"    -> do nothing (an empty/placeholder slot).
  */
 struct MenuItem
 {
     QString id;             // stable identifier, e.g. "taskmanager"
     QString label;          // human label shown under the segment
     QString iconName;       // freedesktop theme icon name
-    QString actionType;     // "command" | "dbus" | "noop" (v1 uses "command")
+    QString actionType;     // "command" | "submenu" | "back" | "noop"
     QStringList argv;       // launch argument vector (argv[0] = program)
+    QString submenuId;      // for actionType=="submenu": the menu id to open
 };
 
 /**
@@ -41,6 +44,13 @@ struct MenuItem
  *   1/command=krunner
  *   ...
  * "command" is split with QProcess::splitCommand (quote-aware, NO shell).
+ *
+ * Nested menus: a slot (or the center) may open another ring instead of
+ * launching, via a "submenu" key naming another section's id:
+ *   center/submenu=apps          ; center opens [radial:apps]
+ *   6/submenu=apps-system        ; slot 6 opens [radial:apps-system]
+ * A "submenu" key takes precedence over "command". The overlay shows a "Back"
+ * hub at the center of any opened sub-ring, so no Back slot is needed.
  */
 class MenuConfig
 {
@@ -48,6 +58,10 @@ public:
     // menuId selects the config section: "default" -> [radial]; any other id
     // -> [radial:<id>], falling back to [radial] then the built-in default.
     explicit MenuConfig(const QString &menuId = QStringLiteral("default"));
+
+    // The id this config was loaded for ("default", "apps", ...). Used by the
+    // controller to track the nav stack when drilling into submenus.
+    QString menuId() const { return m_menuId; }
 
     // The center hub action (default = task manager).
     const MenuItem &center() const { return m_center; }

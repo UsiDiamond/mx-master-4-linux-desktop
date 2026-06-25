@@ -21,7 +21,22 @@ RadialController::RadialController(DaemonHaptics *haptics, QObject *parent)
 
 void RadialController::setMenu(const MenuConfig &config)
 {
-    m_center = config.center();
+    // Root entry (a fresh Show): reset the nav stack so Back can never escape
+    // above the menu we were asked to show.
+    m_menuStack.clear();
+    m_currentMenuId = config.menuId();
+    applyMenu(config, /*asSubmenu=*/false);
+}
+
+void RadialController::applyMenu(const MenuConfig &config, bool asSubmenu)
+{
+    // In a sub-ring the center hub becomes "Back" (return to the parent); at
+    // the root it is the configured center action.
+    m_center = asSubmenu
+        ? MenuItem{QStringLiteral("back"), QStringLiteral("Back"),
+                   QStringLiteral("go-previous"), QStringLiteral("back"),
+                   {}, {}}
+        : config.center();
     m_items = config.segments();
 
     m_segments.clear();
@@ -38,6 +53,37 @@ void RadialController::setMenu(const MenuConfig &config)
     m_pointerEngaged = false;
     emit menuChanged();
     emit highlightChanged();
+}
+
+void RadialController::enterSubmenu(const QString &submenuId)
+{
+    if (submenuId.isEmpty()) {
+        return;
+    }
+    qCInfo(lcRadial) << "enter submenu" << submenuId
+                     << "from" << m_currentMenuId;
+    m_menuStack.push_back(m_currentMenuId);
+    m_currentMenuId = submenuId;
+    if (m_haptics) {
+        m_haptics->tick(); // a light nav tick, not the commit confirm buzz
+    }
+    applyMenu(MenuConfig(submenuId), /*asSubmenu=*/true);
+}
+
+void RadialController::goBack()
+{
+    if (m_menuStack.isEmpty()) {
+        // Already at the root: a Back with nowhere to go just dismisses.
+        cancel();
+        return;
+    }
+    const QString parentId = m_menuStack.takeLast();
+    qCInfo(lcRadial) << "back to" << parentId;
+    m_currentMenuId = parentId;
+    if (m_haptics) {
+        m_haptics->tick();
+    }
+    applyMenu(MenuConfig(parentId), /*asSubmenu=*/!m_menuStack.isEmpty());
 }
 
 void RadialController::setHighlightedIndex(int idx)
@@ -135,8 +181,18 @@ void RadialController::commit()
 
 void RadialController::commitItem(const MenuItem &item)
 {
-    // Shared tail of every commit (user release or programmatic Commit/Activate):
-    // confirm tick -> argv-safe launch -> ActionChosen -> dismiss.
+    // Navigation actions stay in the overlay (no dismiss, no ActionChosen):
+    // "submenu" drills into a nested ring, "back" returns to the parent.
+    if (item.actionType == QLatin1String("submenu")) {
+        enterSubmenu(item.submenuId);
+        return;
+    }
+    if (item.actionType == QLatin1String("back")) {
+        goBack();
+        return;
+    }
+    // Terminal actions: confirm tick -> argv-safe launch -> ActionChosen ->
+    // dismiss. A "noop" still confirms+dismisses (an intentional empty pick).
     if (m_haptics) {
         m_haptics->confirm();
     }

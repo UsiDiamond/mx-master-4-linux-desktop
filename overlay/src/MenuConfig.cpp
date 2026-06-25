@@ -171,8 +171,11 @@ bool MenuConfig::loadFromGroup(QSettings &ini, const QString &groupName)
     }
 
     // Center: defaults to auto-detected task manager so the contract
-    // (center == task manager) holds even if config omits the center.
+    // (center == task manager) holds even if config omits the center. A
+    // "center/submenu" key turns the center into a drill-down instead.
     const QStringList defaultTaskMgr = detectTaskManager();
+    const QString centerSubmenu =
+        ini.value(QStringLiteral("center/submenu")).toString().trimmed();
     const QString centerCmd =
         ini.value(QStringLiteral("center/command")).toString();
     m_center = MenuItem{
@@ -184,11 +187,18 @@ bool MenuConfig::loadFromGroup(QSettings &ini, const QString &groupName)
         QStringLiteral("command"),
         centerCmd.isEmpty() ? defaultTaskMgr : splitCommand(centerCmd),
     };
+    if (!centerSubmenu.isEmpty()) {
+        m_center.actionType = QStringLiteral("submenu");
+        m_center.submenuId = centerSubmenu;
+        m_center.argv = {};
+    }
 
     m_segments.clear();
     for (int i = 1; i <= count; ++i) {
         const QString p = QString::number(i) + QLatin1Char('/');
         const QString cmd = ini.value(p + QStringLiteral("command")).toString();
+        const QString sub =
+            ini.value(p + QStringLiteral("submenu")).toString().trimmed();
         MenuItem item{
             ini.value(p + QStringLiteral("id"),
                       QStringLiteral("slot%1").arg(i)).toString(),
@@ -199,6 +209,12 @@ bool MenuConfig::loadFromGroup(QSettings &ini, const QString &groupName)
             cmd.isEmpty() ? QStringLiteral("noop") : QStringLiteral("command"),
             splitCommand(cmd),
         };
+        // A "submenu" key turns this slot into a drill-down (wins over command).
+        if (!sub.isEmpty()) {
+            item.actionType = QStringLiteral("submenu");
+            item.submenuId = sub;
+            item.argv = {};
+        }
         m_segments.push_back(item);
     }
     ini.endGroup();
