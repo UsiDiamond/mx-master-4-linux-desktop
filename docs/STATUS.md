@@ -3,9 +3,9 @@
 Project: bring the MX Master 4 **Actions Ring** + **native haptics** to Linux on
 **KDE Plasma 6** and **LXQt**. Private repo under the UsiDiamond GitHub account.
 
-Last updated: **2026-06-24** (Phases 1–4 complete; Phase 3 integration +
-packaging and Phase 4 config GUI + focus bridge proven on real hardware /
-round-tripped against both parsers).
+Last updated: **2026-06-24** (Phases 1–4 complete, committed + pushed. REBOOT
+CHECKPOINT — working tree clean, `HEAD=a3b8154` in sync with origin, daemon stopped
+and Actions Ring panel restored). Proven on real hw / round-tripped against both parsers.
 
 ## Where things stand
 
@@ -38,22 +38,34 @@ that fires haptics MUST check the mask, not assume the full 16-waveform table.
 hover/commit (graceful no-op if daemon absent). In `--demo` the overlay does not register
 its service (stays standalone).
 
-## Next steps — Phase 4 (config UI + polish) — RESUME HERE
+## Next steps — RESUME HERE (post-reboot)
 
-Phases 1–3 are done and proven on hardware (see table above). What remains:
+Phases 1–4 are DONE + committed + pushed. The radial menu, ambient haptics, config GUI,
+and packaging all work: `ShowMenu`→ring was confirmed live (user saw it on Plasma Wayland),
+haptics are felt on real hardware, mx4-config round-trips both parsers. Open items:
 
-1. **Config GUI** — a portable Qt6/QML settings window (works on Plasma 6 **and** LXQt)
-   editing `~/.config/mx4desktop/config.ini`: ambient sources (enable/waveform/intensity),
-   the radial menu segments, trigger, and haptic level. Live-preview a waveform by calling
-   `Daemon.PlayHaptic`. Optionally a thin Plasma **KCM** wrapper over the same widget.
-2. **Native-Wayland focus** — a small KWin script/effect bridging `activeWindow` changes to
-   the daemon (today focus only surfaces via Xwayland `_NET_ACTIVE_WINDOW`).
-3. **Physical panel tap** — the one un-automated check: tap the Actions Ring panel and
-   confirm `parse_pressed_cids` decodes CID `0x01A0` from a real `divertedButtonsEvent`
-   (unit-tested against synthetic reports; divert/restore is hardware-confirmed).
-4. **Nice-to-have** — a scriptable `Overlay.Commit(s)` D-Bus method for fully-automated
-   Wayland e2e; richer default menu actions; cursor-anchored Wayland overlay via a C++ KWin
-   effect plugin (Kando pattern).
+1. **Confirm the physical panel-tap trigger** — the one un-automated check (the log monitor
+   timed out before a tap happened). Start the daemon, tap the haptic panel; the ring should
+   open. We can't press the panel from software; `parse_pressed_cids` decodes CID `0x01A0`
+   and is unit-tested against synthetic `divertedButtonsEvent` reports; divert+restore is
+   hardware-confirmed. If a tap does nothing, capture the raw diverted notification to see
+   which CID the panel actually emits and fix the decode.
+2. **OpenRC + systemd dual-init install** — THIS box is Gentoo/OpenRC (no `systemctl --user`!).
+   Rework `install.sh`/`uninstall.sh` to detect the init and default to **XDG autostart**
+   (`~/.config/autostart/mx4desktop.desktop` running `mx4d`, which lazy-spawns the overlay);
+   keep systemd user units optional. Saved as a requirement in agent memory.
+3. **Distro packages** (workflow queued, NOT started) — Gentoo ebuild (OpenRC-default +
+   `systemd` USE flag), Arch PKGBUILD, Debian/Ubuntu, Fedora `.spec`; build-test Gentoo
+   locally via `ebuild`, the others in Docker (available). Add `docs/INSTALL.md` with Gentoo
+   instructions. NOTE: this packaging must include `mx4-config` + the KWin script.
+
+### Run it on OpenRC right now (this box)
+
+    mx4d --verbose      # daemon; lazy-launches the overlay; Ctrl-C restores the panel
+    dbus-send --session --dest=dev.usidiamond.mx4 /dev/usidiamond/mx4 \
+      dev.usidiamond.mx4.Daemon.ShowMenu string:default      # or tap the panel
+    mx4-config          # settings GUI
+    # autostart without systemd: ~/.config/autostart/mx4desktop.desktop with Exec=mx4d
 
 ## Gotchas already discovered (don't relearn)
 
@@ -68,9 +80,15 @@ Phases 1–3 are done and proven on hardware (see table above). What remains:
 - Wayland: overlay is center-screen (no cursor anchoring without a KWin effect plugin);
   X11/LXQt anchors at the cursor.
 - Overlay must use KWin window type `toolbar` (not `dock`) or it gets no keyboard.
+- THIS dev box is **OpenRC** — no `systemctl --user`; use XDG autostart. install.sh/packages
+  must be init-agnostic (XDG autostart primary, systemd units optional).
+- KWin focus-bridge is **Plasma-Wayland-only**; on X11/LXQt the `_NET_ACTIVE_WINDOW` focus
+  source is native and complete (no KWin script needed).
+- Trigger-divert restore on shutdown may need a retry (attempt 1 can time out with "no reply
+  for feature_index=0x0D"; attempt 2 succeeds) — by design; panel ends up non-diverted.
 
 ## Local checkout
 
 `/home/magus/GitHub/mx-master-4-desktop`. Remote `UsiDiamond/mx-master-4-desktop` (private).
 Commits: `0e2e565` scaffold, `640422d` overlay, `9a72aa1` daemon, `a588e29` docs,
-Phase 3 integration + packaging next.
+`6cd6e07` integration+packaging, `a3b8154` config GUI + polish. All pushed (HEAD=a3b8154).
