@@ -26,6 +26,11 @@ only)::
     object   : /dev/usidiamond/mx4/Overlay
     interface: dev.usidiamond.mx4.Overlay
     method   : Show(s menuId), Hide()
+    method   : ShowFlickRing(s menuId)        -- open the ring in flick mode
+    method   : SetFlickVector(i dx, i dy)     -- highlight the segment at that angle
+    method   : CommitFlick()                  -- activate the highlighted segment
+    method   : ScrubSeek(i dx)                -- preview-seek by a horizontal slide
+    method   : CommitSeek()                   -- apply the previewed seek position
 """
 
 from __future__ import annotations
@@ -152,6 +157,47 @@ class OverlayController:
             logger.debug("overlay launch already in flight; updated pending action")
             return True
         return self._launch_and_wait()
+
+    def show_flick_ring(self, menu_id: Optional[str] = None) -> bool:
+        """Ensure the overlay is up and open the ring in flick mode (async).
+
+        Mirrors :meth:`show_menu` but the ring is driven by slide *direction*
+        (no mouse pick): the daemon feeds :meth:`set_flick_vector` updates and
+        finishes with :meth:`commit_flick`. Lazily launches the overlay if it is
+        not yet running.
+        """
+        menu = menu_id if menu_id else self._default_menu
+        if self._bus is None:
+            logger.warning("no session bus; cannot show flick ring")
+            return False
+        if self._overlay_running():
+            self._call_show_flick(menu)
+            return True
+        self._pending = lambda: self._call_show_flick(menu)
+        if self._launching:
+            logger.debug("overlay launch already in flight; updated pending action")
+            return True
+        return self._launch_and_wait()
+
+    def set_flick_vector(self, dx: int, dy: int) -> None:
+        """Update the flick-highlighted segment to the one at ``atan2`` of dx/dy.
+
+        Fire-and-forget; a no-op if the overlay is not (yet) running, so early
+        samples sent before a lazily-launched overlay registers are simply lost.
+        """
+        self._call_method("SetFlickVector", int(dx), int(dy))
+
+    def commit_flick(self) -> None:
+        """Activate the currently flick-highlighted segment and dismiss."""
+        self._call_method("CommitFlick")
+
+    def scrub_seek(self, dx: int) -> None:
+        """Preview-seek the media panel by a horizontal slide of ``dx`` units."""
+        self._call_method("ScrubSeek", int(dx))
+
+    def commit_seek(self) -> None:
+        """Apply the previewed media seek position (the actual MPRIS SetPosition)."""
+        self._call_method("CommitSeek")
 
     def hide(self) -> None:
         """Ask the overlay to hide (no-op if it is not running)."""
@@ -348,6 +394,33 @@ class OverlayController:
             logger.info("overlay ShowMedia() dispatched")
         except Exception:  # noqa: BLE001 - overlay control is best-effort
             logger.exception("overlay ShowMedia() failed")
+
+    def _call_show_flick(self, menu_id: str) -> None:
+        """Call ``Overlay.ShowFlickRing(menu_id)`` async (fire-and-forget)."""
+        try:
+            obj = self._bus.get_object(OVERLAY_BUS_NAME, OVERLAY_OBJECT_PATH)
+            iface = self._proxy_iface(obj)
+            iface.ShowFlickRing(menu_id, ignore_reply=True)
+            logger.info("overlay ShowFlickRing(%s) dispatched", menu_id)
+        except Exception:  # noqa: BLE001 - overlay control is best-effort
+            logger.exception("overlay ShowFlickRing(%s) failed", menu_id)
+
+    def _call_method(self, name: str, *args: object) -> None:
+        """Call a fire-and-forget overlay method IF the overlay is running.
+
+        Used for the high-rate flick/scrub updates (SetFlickVector / ScrubSeek)
+        and their commits: there is no point launching the overlay for these —
+        they only make sense once a ring/media panel is already up — so they are
+        silently dropped when the name is absent. Never blocks, never raises.
+        """
+        if self._bus is None or not self._overlay_running():
+            return
+        try:
+            obj = self._bus.get_object(OVERLAY_BUS_NAME, OVERLAY_OBJECT_PATH)
+            iface = self._proxy_iface(obj)
+            getattr(iface, name)(*args, ignore_reply=True)
+        except Exception:  # noqa: BLE001 - overlay control is best-effort
+            logger.debug("overlay %s%r failed", name, args, exc_info=True)
 
     @staticmethod
     def _proxy_iface(obj):

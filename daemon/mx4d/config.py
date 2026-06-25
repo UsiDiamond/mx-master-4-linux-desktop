@@ -121,6 +121,13 @@ class Mx4Config:
     # section, falling back to [radial] / the built-in ring.
     trigger_tap_menu: str
     trigger_hold_menu: str
+    # Thumb-slide (flick) gesture. Enabled only matters when raw-XY reporting is
+    # on (Solaar "Mouse Gestures" mode); inert otherwise. ``trigger_flick`` gates
+    # the whole slide-driven behaviour (ring flick-to-pick + media seek-scrub);
+    # ``trigger_flick_start`` is the raw-sensor displacement magnitude a press
+    # must accumulate before it is treated as a flick rather than a tap/hold.
+    trigger_flick: bool
+    trigger_flick_start: int
     # [radial]
     radial_center_action: str
     radial_center_label: str
@@ -156,6 +163,8 @@ class Mx4Config:
         _set(p, "trigger", "hold_threshold", str(self.trigger_hold_threshold))
         _set(p, "trigger", "tap_menu", self.trigger_tap_menu)
         _set(p, "trigger", "hold_menu", self.trigger_hold_menu)
+        _set(p, "trigger", "flick", _b(self.trigger_flick))
+        _set(p, "trigger", "flick_start", str(self.trigger_flick_start))
         # Use the SAME key the C++ overlay reads (QSettings "center/command")
         # so a user editing the shared INI affects both processes. The legacy
         # "center_action" key is still read on load for backward compatibility.
@@ -228,6 +237,14 @@ def _default_parser() -> configparser.ConfigParser:
         # separate so a tap and a hold can summon different rings if desired.
         "tap_menu": "",
         "hold_menu": "",
+        # Thumb-slide gesture: while pressed, a slide opens the ring and the
+        # highlighted segment follows the slide direction (release activates);
+        # while the media panel is up, a horizontal slide scrubs the seek bar.
+        # Requires raw-XY reporting (Solaar "Mouse Gestures" mode); harmless when
+        # off. flick_start is the raw displacement that distinguishes a slide
+        # from an incidental wobble during a tap/hold (bigger = harder to trigger).
+        "flick": "true",
+        "flick_start": "260",
     }
     # Shared with the C++ overlay's MenuConfig (QSettings "center/command").
     p["radial"] = {
@@ -308,6 +325,8 @@ def _build(parser: configparser.ConfigParser) -> Mx4Config:
         trigger_hold_threshold=getfloat("trigger", "hold_threshold"),
         trigger_tap_menu=get("trigger", "tap_menu", fallback="").strip(),
         trigger_hold_menu=get("trigger", "hold_menu", fallback="").strip(),
+        trigger_flick=getbool("trigger", "flick"),
+        trigger_flick_start=getint("trigger", "flick_start"),
         radial_center_action=center,
         radial_center_label=center_label,
         radial_center_icon=center_icon,

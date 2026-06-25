@@ -26,6 +26,7 @@ import logging
 import queue
 import signal
 import threading
+import time
 from typing import Optional
 
 from .config import DIVERT_AUTO, DIVERT_FALSE, DIVERT_TRUE, Mx4Config, load_config
@@ -60,6 +61,23 @@ CRITICAL_WAVEFORM = "SHARP_COLLISION"
 
 # Sentinel queued to make the device-I/O worker exit.
 _STOP = object()
+
+# Per-press gesture mode (the "slide distinguishes" model). A press starts
+# PENDING; it resolves to FLICK the moment the thumb-slide crosses the start
+# threshold (-> ring, segment follows the slide), to MEDIA when the hold timer
+# fires first (-> media panel, later slides scrub the seek bar), or to neither
+# (a quick release is a plain tap). Touched on the HID reader / hold-timer
+# threads and the GLib mainloop; it is a single attribute written last-wins, and
+# every consumer re-reads it, so minor races resolve to one branch, never both.
+_PRESS_IDLE = "idle"
+_PRESS_PENDING = "pending"
+_PRESS_FLICK = "flick"
+_PRESS_MEDIA = "media"
+
+# Minimum wall-clock gap between flick/scrub vector updates pushed to the overlay
+# (s). Raw-XY arrives far faster than the overlay needs to redraw; throttling
+# keeps the bus quiet (~40 Hz) without making the highlight feel laggy.
+_VECTOR_SEND_INTERVAL = 0.025
 
 
 class Mx4Daemon:
@@ -106,6 +124,12 @@ class Mx4Daemon:
         # Gestures" mode); reset on each press. Touched on the HID reader thread.
         self._flick_dx = 0
         self._flick_dy = 0
+        # Gesture state machine for the current press (see _PRESS_* above), how
+        # many raw-XY samples we have seen this press (to drop the firmware's
+        # bogus first report), and the last vector-send time (for throttling).
+        self._press_mode = _PRESS_IDLE
+        self._raw_seen = 0
+        self._last_vector_send = 0.0
 
     # -- setup -----------------------------------------------------------
     def setup(self) -> None:
@@ -364,45 +388,106 @@ class Mx4Daemon:
     # The ring opens on a *tap* or a *hold*, never the bare press, so a press
     # that becomes a hold does not double-open.
     def _on_trigger_press(self, cid: int) -> None:
-        """Actions-Ring pressed: emit ``TriggerPressed`` (open happens on tap/hold)."""
+        """Actions-Ring pressed: start a fresh gesture (resolved on tap/hold/slide)."""
         logger.debug("Actions Ring pressed (CID 0x%04X)", cid)
-        # Reset the per-press flick accumulator. Runs on the HID reader thread,
-        # ahead of any raw-XY event for this press (the press notification always
-        # precedes the movement ones), so the slide total starts clean.
+        # Start a new gesture. Runs on the HID reader thread, ahead of any raw-XY
+        # event for this press (the press notification always precedes the
+        # movement ones), so the accumulator and mode start clean.
         self._flick_dx = 0
         self._flick_dy = 0
+        self._raw_seen = 0
+        self._press_mode = _PRESS_PENDING
         from gi.repository import GLib
 
         GLib.idle_add(self._emit_trigger_pressed)
 
     def _on_trigger_raw_xy(self, dx: int, dy: int) -> None:
-        """Accumulate a thumb-slide sample (raw-XY reporting / gesture mode).
+        """Drive the slide gesture from a raw-XY sample (HID reader thread).
 
-        Runs on the HID reader thread. We only sum here (cheap, GIL-safe) and log
-        at debug; the net slide is reported on release. This fires solely when
-        raw-XY reporting is enabled on the panel (Solaar "Mouse Gestures" mode),
-        so it is inert in the default Diverted setup.
+        Accumulates the net slide and advances the per-press state machine: in
+        PENDING, crossing the start threshold promotes the press to FLICK and
+        opens the ring; in FLICK we stream the slide vector to the ring; in MEDIA
+        we stream it to the seek-scrub. Cheap, GIL-safe work only — every overlay
+        call is marshalled to the mainloop. Fires solely when raw-XY reporting is
+        enabled (Solaar "Mouse Gestures" mode), so it is inert when off.
         """
+        self._raw_seen += 1
+        if self._raw_seen == 1:
+            # The firmware's first movement report after a press is bogus (a huge
+            # spurious delta — Solaar discards it too for REPROG_CONTROLS_V4 >=5).
+            # Dropping it keeps the net direction honest.
+            logger.debug("dropping bogus first rawXY sample d=(%+d,%+d)", dx, dy)
+            return
         self._flick_dx += dx
         self._flick_dy += dy
         logger.debug(
-            "Actions Ring slide d=(%+d,%+d) total=(%+d,%+d)",
+            "Actions Ring slide d=(%+d,%+d) total=(%+d,%+d) mode=%s",
             dx,
             dy,
             self._flick_dx,
             self._flick_dy,
+            self._press_mode,
         )
+        if not self.config.trigger_flick:
+            return
+        from gi.repository import GLib
+
+        mode = self._press_mode
+        if mode == _PRESS_PENDING:
+            start = self.config.trigger_flick_start
+            if self._flick_dx * self._flick_dx + self._flick_dy * self._flick_dy >= (
+                start * start
+            ):
+                self._press_mode = _PRESS_FLICK
+                GLib.idle_add(self._begin_flick)
+        elif mode == _PRESS_FLICK:
+            self._maybe_send(self._send_flick_vector)
+        elif mode == _PRESS_MEDIA:
+            self._maybe_send(self._send_scrub)
+
+    def _maybe_send(self, fn) -> None:
+        """Marshal ``fn`` to the mainloop, throttled to _VECTOR_SEND_INTERVAL.
+
+        Raw-XY arrives much faster than the overlay needs updates; this caps the
+        bus traffic without threading state through the reader loop.
+        """
+        now = time.monotonic()
+        if now - self._last_vector_send < _VECTOR_SEND_INTERVAL:
+            return
+        self._last_vector_send = now
+        from gi.repository import GLib
+
+        GLib.idle_add(fn)
 
     def _on_trigger_tap(self, cid: int) -> None:
-        """A short tap of the panel: toggle the tap overlay (radial menu)."""
+        """A short tap of the panel: toggle the tap overlay (radial menu).
+
+        Suppressed when the press already became a flick — a flick gesture is a
+        slide-and-release that commits on release, not a tap (and a quick flick
+        can still release within the tap window).
+        """
+        if self._press_mode == _PRESS_FLICK:
+            logger.debug("release after flick -> commit, not tap")
+            return
         logger.info("Actions Ring tapped (CID 0x%04X)", cid)
         from gi.repository import GLib
 
         GLib.idle_add(self._gesture, "tap")
 
     def _on_trigger_hold(self, cid: int) -> None:
-        """A press-and-hold of the panel: toggle the hold overlay (media panel)."""
+        """A press-and-hold of the panel: toggle the hold overlay (media panel).
+
+        Suppressed when the press already became a flick (the ring is up and the
+        slide is steering it); otherwise we enter MEDIA mode so a subsequent slide
+        scrubs the seek bar.
+        """
+        if self._press_mode == _PRESS_FLICK:
+            logger.debug("hold during flick -> ignored (ring already up)")
+            return
         logger.info("Actions Ring held (CID 0x%04X)", cid)
+        # Mark MEDIA now (on the hold-timer thread) so a slide arriving before the
+        # mainloop opens the panel routes to scrub, not a late flick promotion.
+        self._press_mode = _PRESS_MEDIA
         from gi.repository import GLib
 
         GLib.idle_add(self._gesture, "hold")
@@ -420,6 +505,9 @@ class Mx4Daemon:
             if self._overlay is not None:
                 self._overlay.hide()
             self._overlay_visible = False
+            # This press was a dismiss, not a media open: drop out of MEDIA so a
+            # slide during it does not scrub the (now closing) panel.
+            self._press_mode = _PRESS_IDLE
             return False
         # Nothing up: buzz a confirm tick (off the mainloop) and open the
         # per-gesture overlay. A hold raises the media panel; a tap the ring.
@@ -475,20 +563,66 @@ class Mx4Daemon:
         return ok
 
     def _on_trigger_release(self, cid: int) -> None:
-        """Actions-Ring released: emit ``TriggerReleased`` (marshalled to mainloop)."""
+        """Actions-Ring released: commit the gesture and emit ``TriggerReleased``.
+
+        A FLICK release activates the highlighted ring segment; a MEDIA release
+        that moved applies the previewed seek. Both are marshalled to the
+        mainloop (D-Bus must not be touched from the reader thread).
+        """
         logger.debug("Actions Ring released (CID 0x%04X)", cid)
-        # If a slide was tracked this press, log its net direction once. This is
-        # the readable confirmation that raw-XY (gesture) reporting is flowing and
-        # the seed for flick-to-pick; zero when raw-XY is off (the normal case).
+        mode = self._press_mode
+        self._press_mode = _PRESS_IDLE
         if self._flick_dx or self._flick_dy:
             logger.info(
-                "Actions Ring slide on release: net=(%+d,%+d)",
+                "Actions Ring slide on release: net=(%+d,%+d) mode=%s",
                 self._flick_dx,
                 self._flick_dy,
+                mode,
             )
         from gi.repository import GLib
 
+        if mode == _PRESS_FLICK:
+            GLib.idle_add(self._commit_flick)
+        elif mode == _PRESS_MEDIA and (self._flick_dx or self._flick_dy):
+            GLib.idle_add(self._commit_seek)
         GLib.idle_add(self._emit_trigger_released)
+
+    # -- flick / seek-scrub (all run on the GLib mainloop) ---------------
+    def _begin_flick(self) -> bool:
+        """A slide crossed the threshold: open the ring in flick mode."""
+        logger.info(
+            "flick gesture -> ring (net=(%+d,%+d))", self._flick_dx, self._flick_dy
+        )
+        self._buzz_trigger()
+        if self._overlay is not None:
+            self._overlay.show_flick_ring(self.config.trigger_tap_menu or None)
+            self._overlay_visible = True
+        return False
+
+    def _send_flick_vector(self) -> bool:
+        """Push the current net slide to the ring so it highlights that direction."""
+        if self._overlay is not None:
+            self._overlay.set_flick_vector(self._flick_dx, self._flick_dy)
+        return False
+
+    def _commit_flick(self) -> bool:
+        """Release in flick mode: activate the highlighted segment and dismiss."""
+        if self._overlay is not None:
+            self._overlay.commit_flick()
+        self._overlay_visible = False
+        return False
+
+    def _send_scrub(self) -> bool:
+        """Push the current horizontal slide to the media panel's seek preview."""
+        if self._overlay is not None:
+            self._overlay.scrub_seek(self._flick_dx)
+        return False
+
+    def _commit_seek(self) -> bool:
+        """Release in media mode after a slide: apply the previewed seek."""
+        if self._overlay is not None:
+            self._overlay.commit_seek()
+        return False
 
     def _emit_trigger_released(self) -> bool:
         """Emit ``TriggerReleased`` on the mainloop (fires once)."""
