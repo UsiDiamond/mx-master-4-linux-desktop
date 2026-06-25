@@ -59,6 +59,8 @@ set(MX4_SOURCES
     src/PlatformWindow.h
     src/OverlayService.cpp
     src/OverlayService.h
+    src/MprisController.cpp
+    src/MprisController.h
     qml/qml.qrc
 )
 

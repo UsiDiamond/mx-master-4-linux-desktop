@@ -42,6 +42,12 @@ void OverlayService::Hide()
     emit hideRequested();
 }
 
+void OverlayService::ShowMedia()
+{
+    qCInfo(lcService) << "D-Bus ShowMedia()";
+    emit showMediaRequested();
+}
+
 bool OverlayService::Commit(const QString &actionId)
 {
     qCInfo(lcService) << "D-Bus Commit(" << actionId << ")";

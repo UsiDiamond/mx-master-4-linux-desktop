@@ -39,6 +39,10 @@ public slots: // exported as D-Bus methods
     Q_SCRIPTABLE void Show(const QString &menuId);
     Q_SCRIPTABLE void Hide();
 
+    // Raise the MPRIS media-controls panel (the press-and-hold target) instead
+    // of a radial ring.
+    Q_SCRIPTABLE void ShowMedia();
+
     // Programmatic commit of a segment as if the user selected it, driving the
     // same commit()/launch path. Returns whether a matching item was committed.
     // Commit("")/Commit("center") commits the center hub action. These make the
@@ -57,11 +61,19 @@ public:
     void setCommitHandler(CommitHandler handler) { m_commitHandler = std::move(handler); }
     void setActivateHandler(ActivateHandler handler) { m_activateHandler = std::move(handler); }
 
+    // Emit the Dismissed D-Bus signal (the overlay just closed for any reason:
+    // a committed action, a cancel, or an external Hide). The daemon listens so
+    // it can track visibility for press-again-to-dismiss.
+    void notifyDismissed() { emit Dismissed(); }
+
 signals: // exported as D-Bus signals
     Q_SCRIPTABLE void ActionChosen(const QString &actionId);
+    // Fired whenever the overlay transitions to hidden (commit / cancel / Hide).
+    Q_SCRIPTABLE void Dismissed();
 
     // Internal Qt signals (not over the bus) the app wires to the window.
     void showRequested(const QString &menuId);
+    void showMediaRequested();
     void hideRequested();
 
 private:

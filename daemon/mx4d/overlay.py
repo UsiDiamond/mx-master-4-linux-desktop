@@ -31,8 +31,9 @@ only)::
 from __future__ import annotations
 
 import logging
+import os
 import shutil
-from typing import Optional
+from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -62,20 +63,42 @@ class OverlayController:
         *,
         overlay_command: str,
         default_menu: str = "default",
+        on_dismissed=None,
     ) -> None:
         """:param bus: the daemon's already-connected ``dbus.SessionBus``.
         :param overlay_command: the command used to launch the overlay (bare
             name resolved on PATH, or an absolute path). From ``[overlay]
             command``.
         :param default_menu: menu id passed to ``Show`` when none is given.
+        :param on_dismissed: optional 0-arg callback invoked (on the GLib
+            mainloop) when the overlay emits ``Dismissed`` — i.e. it closed for
+            any reason (committed action, cancel, or an external ``Hide``). The
+            daemon uses it to track visibility for press-again-to-dismiss.
         """
         self._bus = bus
         self._overlay_command = overlay_command
         self._default_menu = default_menu or "default"
+        self._on_dismissed = on_dismissed
 
-        # The menu id we want shown once the overlay's name is available. Set
-        # while a launch/wait is in flight; consumed (cleared) when we call Show.
-        self._pending_menu: Optional[str] = None
+        # Listen for the overlay's Dismissed signal regardless of whether the
+        # overlay is running yet (subscription is by interface+path, so it
+        # survives the overlay being lazily (re)launched). Best-effort: a bus
+        # without signal support just means we never auto-clear visibility.
+        if bus is not None and on_dismissed is not None:
+            try:
+                bus.add_signal_receiver(
+                    self._handle_dismissed,
+                    signal_name="Dismissed",
+                    dbus_interface=OVERLAY_INTERFACE,
+                    path=OVERLAY_OBJECT_PATH,
+                )
+            except Exception:  # noqa: BLE001 - signal wiring is best-effort
+                logger.debug("could not subscribe to overlay Dismissed", exc_info=True)
+
+        # The action to run once the overlay's name is available (a 0-arg
+        # callable: Show(menu) or ShowMedia). Set while a launch/wait is in
+        # flight; consumed (cleared) when it fires.
+        self._pending: Optional[Callable[[], None]] = None
         # True between spawning the process and either calling Show or timing
         # out — prevents a second launch while one is already starting.
         self._launching = False
@@ -105,9 +128,28 @@ class OverlayController:
             return True
 
         # Overlay absent. Remember what to show and (re)launch + wait for it.
-        self._pending_menu = menu
+        self._pending = lambda: self._call_show(menu)
         if self._launching:
-            logger.debug("overlay launch already in flight; updated pending menu")
+            logger.debug("overlay launch already in flight; updated pending action")
+            return True
+        return self._launch_and_wait()
+
+    def show_media(self) -> bool:
+        """Ensure the overlay is up and show the MPRIS media panel (async).
+
+        Mirrors :meth:`show_menu` but raises the media-controls panel instead of
+        a radial ring. Never blocks; returns whether the request was dispatched
+        or queued behind a lazy launch.
+        """
+        if self._bus is None:
+            logger.warning("no session bus; cannot show media panel")
+            return False
+        if self._overlay_running():
+            self._call_show_media()
+            return True
+        self._pending = self._call_show_media
+        if self._launching:
+            logger.debug("overlay launch already in flight; updated pending action")
             return True
         return self._launch_and_wait()
 
@@ -121,6 +163,15 @@ class OverlayController:
             iface.Hide(ignore_reply=True)
         except Exception:  # noqa: BLE001 - overlay control is best-effort
             logger.debug("overlay Hide() failed", exc_info=True)
+
+    def _handle_dismissed(self, *_args) -> None:
+        """D-Bus ``Dismissed`` signal handler: the overlay just closed."""
+        if self._on_dismissed is None:
+            return
+        try:
+            self._on_dismissed()
+        except Exception:  # noqa: BLE001 - never let a callback kill the bus loop
+            logger.debug("on_dismissed callback raised", exc_info=True)
 
     def stop(self) -> None:
         """Terminate an overlay process *we* launched (leave a user-started one).
@@ -139,7 +190,7 @@ class OverlayController:
                 pass
             self._wait_source = 0
         self._launching = False
-        self._pending_menu = None
+        self._pending = None
 
         proc = self._proc
         self._proc = None
@@ -195,7 +246,7 @@ class OverlayController:
         """
         argv = self._resolve_command()
         if argv is None:
-            self._pending_menu = None
+            self._pending = None
             return False
 
         import subprocess
@@ -210,7 +261,7 @@ class OverlayController:
             logger.info("launched overlay: %s (pid %d)", " ".join(argv), self._proc.pid)
         except OSError as exc:
             logger.error("failed to launch overlay %s: %s", argv, exc)
-            self._pending_menu = None
+            self._pending = None
             return False
 
         self._launching = True
@@ -228,16 +279,18 @@ class OverlayController:
             if self._proc is not None and self._proc.poll() is not None:
                 logger.error("overlay process exited before registering its bus name")
                 self._launching = False
-                self._pending_menu = None
+                self._pending = None
                 self._wait_source = 0
                 return False  # stop the timer
 
             if self._overlay_running():
-                menu = self._pending_menu or self._default_menu
-                self._pending_menu = None
+                pending = self._pending
+                self._pending = None
                 self._launching = False
                 self._wait_source = 0
-                self._call_show(menu)
+                # Run the queued action (Show(menu) or ShowMedia); default to the
+                # default menu if somehow nothing was queued.
+                (pending or (lambda: self._call_show(self._default_menu)))()
                 return False  # stop the timer
 
             elapsed["ms"] += _WAIT_POLL_MS
@@ -248,7 +301,7 @@ class OverlayController:
                     _WAIT_TOTAL_MS,
                 )
                 self._launching = False
-                self._pending_menu = None
+                self._pending = None
                 self._wait_source = 0
                 return False  # stop the timer
             return True  # keep polling
@@ -266,6 +319,16 @@ class OverlayController:
             logger.info("overlay Show(%s) dispatched", menu_id)
         except Exception:  # noqa: BLE001 - overlay control is best-effort
             logger.exception("overlay Show(%s) failed", menu_id)
+
+    def _call_show_media(self) -> None:
+        """Call ``Overlay.ShowMedia()`` async (fire-and-forget, never blocks)."""
+        try:
+            obj = self._bus.get_object(OVERLAY_BUS_NAME, OVERLAY_OBJECT_PATH)
+            iface = self._proxy_iface(obj)
+            iface.ShowMedia(ignore_reply=True)
+            logger.info("overlay ShowMedia() dispatched")
+        except Exception:  # noqa: BLE001 - overlay control is best-effort
+            logger.exception("overlay ShowMedia() failed")
 
     @staticmethod
     def _proxy_iface(obj):

@@ -15,6 +15,7 @@
 
 #include "DaemonHaptics.h"
 #include "MenuConfig.h"
+#include "MprisController.h"
 #include "OverlayService.h"
 #include "PlatformWindow.h"
 #include "RadialController.h"
@@ -25,7 +26,9 @@ using namespace mx4;
 
 namespace {
 
-constexpr int kOverlaySize = 520; // square content size
+constexpr int kOverlaySize = 520;  // square content size for the radial ring
+constexpr int kMediaWidth = 600;   // media-controls panel window size
+constexpr int kMediaHeight = 264;
 
 // Serves freedesktop theme icons to QML as "image://theme/<icon-name>".
 // Falls back to a transparent pixmap when the icon is absent, so QML never
@@ -120,18 +123,20 @@ int main(int argc, char *argv[])
     auto *haptics = new DaemonHaptics(&app);
     auto *controller = new RadialController(haptics, &app);
     auto *platform = new PlatformWindow(&app);
+    auto *mpris = new MprisController(&app); // backs the press-and-hold panel
 
     // The currently-shown view (recreated per Show so the surface role is fresh
     // on Wayland). nullptr when hidden.
     QQuickView *view = nullptr;
 
-    // Helper to hide & destroy the current view.
-    auto hideView = [&view]() {
+    // Helper to hide & destroy the current view (and stop the media poll).
+    auto hideView = [&view, mpris]() {
         if (view) {
             view->hide();
             view->deleteLater();
             view = nullptr;
         }
+        mpris->suspend();
     };
 
     // Helper to (re)show the menu for a given menu id (selects the config
@@ -145,22 +150,69 @@ int main(int argc, char *argv[])
         MenuConfig fresh(menuId.isEmpty() ? QStringLiteral("default") : menuId);
         controller->setMenu(fresh);
         view = makeView(app, controller, platform);
-        view->show();
+        // Position (and bind to the cursor's screen) BEFORE show: an X11 WM maps
+        // a Qt::Tool window at its own default first, and a post-map move is
+        // unreliable / can leave the ring on the primary monitor. Placing it
+        // pre-map lands it on the monitor the pointer is on.
         platform->positionForShow(view, QSize(kOverlaySize, kOverlaySize));
+        view->show();
         view->requestActivate();
     };
+
+    // Helper to (re)show the MPRIS media-controls panel (the hold target).
+    auto showMediaView = [&]() {
+        if (view) {
+            hideView();
+        }
+        mpris->refresh(); // re-scan players + read metadata before drawing
+        auto *v = new QQuickView();
+        v->setResizeMode(QQuickView::SizeRootObjectToView);
+        v->resize(kMediaWidth, kMediaHeight);
+        v->engine()->addImageProvider(QStringLiteral("theme"),
+                                       new ThemeIconProvider);
+        v->rootContext()->setContextProperty(QStringLiteral("Media"), mpris);
+        platform->configure(v, QSize(kMediaWidth, kMediaHeight));
+        v->setSource(QUrl(QStringLiteral("qrc:/qml/MediaPanel.qml")));
+        if (v->status() == QQuickView::Error) {
+            for (const auto &e : v->errors()) {
+                qCCritical(lcMain) << "QML error:" << e.toString();
+            }
+        }
+        view = v;
+        platform->positionForShow(view, QSize(kMediaWidth, kMediaHeight));
+        view->show();
+        view->requestActivate();
+    };
+
+    // The overlay's D-Bus service (created below in non-demo mode). Declared
+    // here so the dismiss wiring can notify it when the ring closes.
+    OverlayService *service = nullptr;
 
     // controller -> dismiss wiring (Escape / commit / outside click).
     QObject::connect(controller, &RadialController::dismissRequested,
                      &app, [&]() {
         hideView();
+        if (service) {
+            service->notifyDismissed(); // tell the daemon the overlay closed
+        }
+        if (demo) {
+            QTimer::singleShot(120, &app, &QGuiApplication::quit);
+        }
+    });
+
+    // media panel -> same dismiss path (Escape / click-outside / close button).
+    QObject::connect(mpris, &MprisController::dismissRequested,
+                     &app, [&]() {
+        hideView();
+        if (service) {
+            service->notifyDismissed();
+        }
         if (demo) {
             QTimer::singleShot(120, &app, &QGuiApplication::quit);
         }
     });
 
     // --- D-Bus Overlay service (skipped in demo for standalone runnability) -
-    OverlayService *service = nullptr;
     if (!demo) {
         service = new OverlayService(&app);
 
@@ -170,8 +222,13 @@ int main(int argc, char *argv[])
                              // CLI default (--menu), then to [radial].
                              showView(menuId.isEmpty() ? cliMenuId : menuId);
                          });
+        QObject::connect(service, &OverlayService::showMediaRequested,
+                         &app, [&]() { showMediaView(); });
         QObject::connect(service, &OverlayService::hideRequested,
-                         &app, [&]() { hideView(); });
+                         &app, [&]() {
+                             hideView();
+                             service->notifyDismissed();
+                         });
 
         // Programmatic Commit/Activate: ensure the menu is loaded (show it if
         // hidden, so the controller holds the right segments), then drive the

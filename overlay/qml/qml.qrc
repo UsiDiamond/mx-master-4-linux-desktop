@@ -2,5 +2,6 @@
     <qresource prefix="/qml">
         <file>RadialMenu.qml</file>
         <file>Segment.qml</file>
+        <file>MediaPanel.qml</file>
     </qresource>
 </RCC>

@@ -115,11 +115,16 @@ void PlatformWindow::positionForShow(QQuickWindow *window, const QSize &desiredS
         // Center the window ON the cursor (X11 can read the global pointer).
         const QPoint cursor = QCursor::pos();
         QScreen *screen = QGuiApplication::screenAt(cursor);
-        QRect bounds = screen ? screen->geometry()
-                              : QGuiApplication::primaryScreen()->geometry();
+        if (!screen) {
+            screen = QGuiApplication::primaryScreen();
+        }
+        const QRect bounds = screen->geometry();
+        // Bind the window to the cursor's screen so a multi-monitor map lands on
+        // the right output (must be set before show()); then center on the
+        // pointer, clamped fully within that screen.
+        window->setScreen(screen);
         QPoint topLeft(cursor.x() - desiredSize.width() / 2,
                        cursor.y() - desiredSize.height() / 2);
-        // Keep fully on-screen.
         topLeft.setX(qBound(bounds.left(), topLeft.x(),
                             bounds.right() - desiredSize.width()));
         topLeft.setY(qBound(bounds.top(), topLeft.y(),

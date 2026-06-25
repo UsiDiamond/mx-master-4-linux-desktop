@@ -96,6 +96,11 @@ class Mx4Daemon:
         # Set when the device is detected to have gone away mid-run, so the
         # mainloop can shut down cleanly instead of becoming a no-op zombie.
         self._device_lost = threading.Event()
+        # Whether an overlay (ring or media panel) is currently up, so a second
+        # thumb press toggles it closed. Set True when we Show; cleared on the
+        # overlay's Dismissed signal (and when we ourselves Hide). Touched only
+        # on the GLib mainloop, so no lock is needed.
+        self._overlay_visible = False
 
     # -- setup -----------------------------------------------------------
     def setup(self) -> None:
@@ -360,36 +365,58 @@ class Mx4Daemon:
         GLib.idle_add(self._emit_trigger_pressed)
 
     def _on_trigger_tap(self, cid: int) -> None:
-        """A short tap of the panel: summon the tap menu."""
-        logger.info("Actions Ring tapped -> radial menu (CID 0x%04X)", cid)
-        self._summon_menu(self.config.trigger_tap_menu)
+        """A short tap of the panel: toggle the tap overlay (radial menu)."""
+        logger.info("Actions Ring tapped (CID 0x%04X)", cid)
+        from gi.repository import GLib
+
+        GLib.idle_add(self._gesture, "tap")
 
     def _on_trigger_hold(self, cid: int) -> None:
-        """A press-and-hold of the panel: summon the hold menu (task manager)."""
-        logger.info("Actions Ring held -> radial task manager (CID 0x%04X)", cid)
-        self._summon_menu(self.config.trigger_hold_menu)
+        """A press-and-hold of the panel: toggle the hold overlay (media panel)."""
+        logger.info("Actions Ring held (CID 0x%04X)", cid)
+        from gi.repository import GLib
 
-    def _summon_menu(self, menu_id: str) -> None:
-        """Buzz a confirm tick (off the mainloop) and raise the overlay (on it)."""
+        GLib.idle_add(self._gesture, "hold")
+
+    def _gesture(self, kind: str) -> bool:
+        """Open the per-gesture overlay, or dismiss whatever is already up.
+
+        Runs on the GLib mainloop (serialized with the overlay's ``Dismissed``
+        signal), so ``_overlay_visible`` needs no lock. A thumb press while an
+        overlay is showing dismisses it — press-again-to-dismiss, for either
+        gesture and whichever overlay (ring or media panel) is up.
+        """
+        if self._overlay_visible:
+            logger.info("overlay already up -> dismiss")
+            if self._overlay is not None:
+                self._overlay.hide()
+            self._overlay_visible = False
+            return False
+        # Nothing up: buzz a confirm tick (off the mainloop) and open the
+        # per-gesture overlay. A hold raises the media panel; a tap the ring.
+        self._buzz_trigger()
+        if kind == "hold":
+            self.show_media()
+        else:
+            self.show_menu(self.config.trigger_tap_menu or None)
+        return False
+
+    def _buzz_trigger(self) -> None:
+        """Play the trigger confirm tick on the device-I/O worker (best-effort)."""
         if self.haptics is not None:
             try:
                 self._io_queue.put_nowait(("force_play", self.config.trigger_waveform))
             except queue.Full:
                 logger.debug("io queue full; dropping trigger buzz")
-        from gi.repository import GLib
 
-        GLib.idle_add(self._show_menu_idle, menu_id)
+    def _on_overlay_dismissed(self) -> None:
+        """The overlay reported it closed (committed action / cancel / our Hide)."""
+        self._overlay_visible = False
 
     def _emit_trigger_pressed(self) -> bool:
         """Emit ``TriggerPressed`` on the mainloop (fires once)."""
         if self._dbus_service is not None:
             self._dbus_service.TriggerPressed()
-        return False
-
-    def _show_menu_idle(self, menu_id: str) -> bool:
-        """Raise the overlay for ``menu_id`` on the mainloop (fires once)."""
-        # An empty menu id falls back to the configured default menu.
-        self.show_menu(menu_id or None)
         return False
 
     def show_menu(self, menu_id: Optional[str] = None) -> bool:
@@ -403,7 +430,20 @@ class Mx4Daemon:
         if self._overlay is None:
             logger.warning("overlay controller unavailable; cannot show menu")
             return False
-        return self._overlay.show_menu(menu_id)
+        ok = self._overlay.show_menu(menu_id)
+        if ok:
+            self._overlay_visible = True
+        return ok
+
+    def show_media(self) -> bool:
+        """Raise the MPRIS media-controls panel (async; never blocks)."""
+        if self._overlay is None:
+            logger.warning("overlay controller unavailable; cannot show media")
+            return False
+        ok = self._overlay.show_media()
+        if ok:
+            self._overlay_visible = True
+        return ok
 
     def _on_trigger_release(self, cid: int) -> None:
         """Actions-Ring released: emit ``TriggerReleased`` (marshalled to mainloop)."""
@@ -490,6 +530,7 @@ class Mx4Daemon:
                 bus,
                 overlay_command=self.config.overlay_command,
                 default_menu=self.config.radial_default_menu,
+                on_dismissed=self._on_overlay_dismissed,
             )
             logger.info("D-Bus service published at %s", DBUS_BUS_NAME)
         except Exception:  # noqa: BLE001 - D-Bus is optional, daemon still useful
