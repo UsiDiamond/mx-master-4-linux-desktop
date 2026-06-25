@@ -14,6 +14,9 @@ mx-master-4-desktop installed. Quick start:
   * Settings GUI:   mx4-config   (or "MX Master 4 Settings" in your menu)
   * The daemon (mx4d) autostarts at login via /etc/xdg/autostart on EVERY
     desktop & init. It lazy-launches the radial overlay on demand.
+  * Helpers (bind to a hotkey or a radial segment):
+      mx4-show         open the Actions Ring without diverting a mouse button
+      mx4-playpause    toggle play/pause on the active MPRIS player (qdbus6)
 
   Start it now without logging out:
       mx4d --verbose &          # or, on systemd:

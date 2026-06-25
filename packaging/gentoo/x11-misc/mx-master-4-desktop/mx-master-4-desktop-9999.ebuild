@@ -3,25 +3,29 @@
 
 EAPI=8
 
+# LIVE ebuild: this is the one that BUILDS TODAY. Upstream has no v0.1.0 tag yet,
+# so the versioned ebuild's release tarball 404s; emerge =9999 instead and it
+# fetches HEAD of the upstream git repo via git-r3.
+#
 # Daemon (mx4d) runs on a single system Python interpreter; no venv/pip at
 # runtime. The C++ overlay + config GUI are built with CMake. Two independent
 # CMake projects (overlay/ and config-ui/) live in this repo with no umbrella
 # CMakeLists.txt, so the cmake-eclass phases are driven once per sub-project.
 PYTHON_COMPAT=( python3_{11..14} )
 
-inherit cmake python-single-r1 systemd udev xdg
+inherit cmake python-single-r1 systemd udev xdg git-r3
 
 DESCRIPTION="Actions Ring radial overlay + native haptics daemon for the Logitech MX Master 4"
 HOMEPAGE="https://github.com/UsiDiamond/mx-master-4-desktop"
-# NOTE: there is no v0.1.0 git tag upstream yet, so this SRC_URI 404s until a
-# tag is cut. Build TODAY with the live ebuild (mx-master-4-desktop-9999.ebuild,
-# git-r3). Once upstream tags v0.1.0, this versioned ebuild fetches the release
-# tarball; regenerate the Manifest then with `ebuild ... manifest`.
-SRC_URI="https://github.com/UsiDiamond/${PN}/archive/refs/tags/v${PV}.tar.gz -> ${P}.tar.gz"
+# Live source: HEAD of the upstream default branch. git-r3 leaves SRC_URI unset
+# and EGIT_* drive the checkout; no Manifest DIST entry, no release tag needed.
+EGIT_REPO_URI="https://github.com/UsiDiamond/mx-master-4-desktop.git"
 
 LICENSE="MIT"
 SLOT="0"
-KEYWORDS="~amd64 ~arm64"
+# Live ebuild: never keyworded (always ~* via the 9999 convention). Emerge it
+# explicitly with =mx-master-4-desktop-9999 or accept_keywords **.
+KEYWORDS=""
 # systemd: install the systemd user units. Default (off) uses the portable XDG
 # autostart entry, which is what OpenRC / runit / s6 sessions rely on.
 IUSE="+sound systemd"
@@ -80,6 +84,11 @@ pkg_setup() {
 	python-single-r1_pkg_setup
 }
 
+src_unpack() {
+	# git-r3 owns the live checkout (cmake_src_unpack would expect a tarball).
+	git-r3_src_unpack
+}
+
 src_prepare() {
 	# cmake_src_prepare insists on a CMakeLists.txt under CMAKE_USE_DIR; this
 	# repo has none at the top level (two independent sub-projects), so point it
@@ -129,7 +138,7 @@ src_install() {
 	# matches install.sh's runtime contract exactly.
 	insinto "${MX4_LIBDIR}"
 	doins -r "${S}/daemon/mx4d"
-	# Strip any stray build caches that slipped into the tarball.
+	# Strip any stray build caches that slipped into the checkout.
 	rm -rf "${ED}${MX4_LIBDIR}/mx4d/__pycache__" || die
 	find "${ED}${MX4_LIBDIR}/mx4d" -name '*.pyc' -delete || die
 

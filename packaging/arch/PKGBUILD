@@ -26,6 +26,10 @@ license=('MIT')
 #    + Shapes all ship inside qt6-declarative on Arch) + layer-shell-qt.
 #  - qt6-wayland provides the Wayland platform plugin the layer-shell overlay
 #    needs at runtime on a Wayland session.
+#  - qt6-tools provides qdbus6, the preferred backend for mx4-playpause (it
+#    falls back to dbus-send from the always-present dbus, but qdbus6 is the
+#    primary path); qt6-tools also provides qdbus6 used by the KWin reconfigure
+#    hint and is a hard runtime dep of the playpause helper's fast path.
 depends=(
     'python'
     'python-dbus'
@@ -33,6 +37,7 @@ depends=(
     'python-xlib'
     'qt6-base'
     'qt6-declarative'
+    'qt6-tools'
     'layer-shell-qt'
     'qt6-wayland'
 )
@@ -60,9 +65,31 @@ optdepends=(
 
 install="${pkgname}.install"
 
-# Build from the repo checkout. For an AUR submission swap this for a tagged
-# tarball or a git+...#tag= source and a real sha256/SKIP; the build-test in
-# this tree drives makepkg against the working copy via a symlinked source.
+# --- Source ----------------------------------------------------------------
+# No upstream RELEASE TAG exists yet (v0.1.0 is the in-tree project() version,
+# not a git tag), so this PKGBUILD builds from a tarball of the working tree.
+# To build TODAY from a local checkout, make the expected source dir name:
+#
+#     cd packaging/arch
+#     ( cd ../.. && git archive --format=tar.gz --prefix="mx-master-4-desktop-0.1.0/" \
+#         -o "packaging/arch/mx-master-4-desktop-0.1.0.tar.gz" HEAD )
+#     makepkg -fi            # build + install
+#
+# AUR -git VARIANT (builds straight from upstream, no tag needed). To publish a
+# mx-master-4-desktop-git package, rename pkgname to mx-master-4-desktop-git,
+# add a pkgver() (see below) and swap the source/sha256sums for:
+#
+#     source=("${pkgname}::git+https://github.com/UsiDiamond/mx-master-4-desktop.git")
+#     sha256sums=('SKIP')
+#     pkgver() {
+#         cd "${srcdir}/${pkgname}"
+#         printf '0.1.0.r%s.g%s' \
+#             "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+#     }
+#
+# (a -git package also needs `git` in makedepends and `cd ...::git clone dir`
+# adjustments in build()/package(); the build/package bodies below are
+# otherwise identical).
 source=("${pkgname}-${pkgver}.tar.gz")
 sha256sums=('SKIP')
 
@@ -115,7 +142,12 @@ export PYTHONPATH="${_libdir}\${PYTHONPATH:+:\$PYTHONPATH}"
 exec /usr/bin/python3 -m mx4d "\$@"
 EOF
     chmod 755 "${pkgdir}/usr/bin/mx4d"
+
+    # mx4-show:      opens the ring without diverting any mouse button (hotkey).
+    # mx4-playpause: toggles play/pause on the active MPRIS player via qdbus6
+    #                (dbus-send fallback), no playerctl — for a radial segment.
     install -Dm755 packaging/bin/mx4-show "${pkgdir}/usr/bin/mx4-show"
+    install -Dm755 packaging/bin/mx4-playpause "${pkgdir}/usr/bin/mx4-playpause"
 
     # --- 4. udev rule (uaccess, Logitech VID 046d) -> /usr/lib/udev/rules.d ---
     install -Dm644 packaging/udev/70-mx-master-4.rules \

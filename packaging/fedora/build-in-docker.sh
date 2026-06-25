@@ -27,9 +27,10 @@ cp "${SPEC}" ~/rpmbuild/SPECS/
 # --- verify dependency names resolve via dnf --------------------------------
 echo "=== DEP RESOLUTION CHECK ==="
 for p in cmake ninja-build gcc-c++ extra-cmake-modules qt6-qtbase-devel \
-         qt6-qtdeclarative-devel layer-shell-qt-devel \
+         qt6-qtdeclarative-devel qt6-qtquickcontrols2-devel layer-shell-qt-devel \
          python3 python3-dbus python3-gobject python3-xlib \
-         qt6-qtbase qt6-qtdeclarative layer-shell-qt; do
+         qt6-qtbase qt6-qtdeclarative qt6-qtquickcontrols2 layer-shell-qt \
+         qt6-qttools dbus-tools; do
     if dnf -q list --available "$p" >/dev/null 2>&1 || dnf -q list --installed "$p" >/dev/null 2>&1; then
         echo "OK   $p"
     else

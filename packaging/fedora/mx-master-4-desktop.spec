@@ -18,6 +18,10 @@ BuildRequires:  gcc-c++
 BuildRequires:  extra-cmake-modules
 BuildRequires:  qt6-qtbase-devel
 BuildRequires:  qt6-qtdeclarative-devel
+# QuickControls2 C++ module for the config GUI. The config-ui CMakeLists looks
+# this up QUIET/optional, so the build is green without it (it falls back to the
+# runtime QML import), but providing it completes the C++ component link.
+BuildRequires:  qt6-qtquickcontrols2-devel
 BuildRequires:  layer-shell-qt-devel
 
 # Daemon (mx4d) runtime — runs on the SYSTEM python, no venv/pip.
@@ -25,11 +29,19 @@ Requires:       python3
 Requires:       python3-dbus
 Requires:       python3-gobject
 Requires:       python3-xlib
-# Overlay (mx4-radial) + config GUI (mx4-config) runtime: Qt6 + LayerShellQt +
-# the QML runtime modules (qt6-qtdeclarative ships QtQuick/Controls/Shapes).
+# Overlay (mx4-radial) + config GUI (mx4-config) runtime: Qt6 + LayerShellQt.
+# qt6-qtdeclarative ships the QtQuick / QtQuick.Layouts / QtQuick.Shapes QML
+# modules the overlay uses; the config GUI also imports QtQuick.Controls, which
+# on Fedora lives in the SEPARATE qt6-qtquickcontrols2 package (without it the
+# settings window renders blank controls).
 Requires:       qt6-qtbase
 Requires:       qt6-qtdeclarative
+Requires:       qt6-qtquickcontrols2
 Requires:       layer-shell-qt
+# mx4-playpause prefers qdbus6 (Qt6 D-Bus CLI, shipped by qt6-qttools) to drive
+# MPRIS PlayPause; mx4-show and the dbus-send fallback paths use dbus-send.
+Requires:       qt6-qttools
+Requires:       dbus-tools
 
 # Pull the active user's udev ACL helper. The KWin focus-bridge is shipped as
 # DATA only (NEVER a hard Plasma dep); installs run fine on LXQt/GNOME/etc.
@@ -95,7 +107,13 @@ export PYTHONPATH="%{mx4libdir}\${PYTHONPATH:+:\$PYTHONPATH}"
 exec %{__python3} -m mx4d "\$@"
 EOF
 chmod 0755 %{buildroot}%{_bindir}/mx4d
-install -Dpm0755 packaging/bin/mx4-show %{buildroot}%{_bindir}/mx4-show
+
+# --- shell helpers (mx4-show + mx4-playpause) -------------------------------
+# mx4-show       : dbus-send ShowMenu wrapper (bind to a hotkey/spare button).
+# mx4-playpause  : MPRIS play/pause toggle via qdbus6/qdbus/dbus-send, no
+#                  playerctl (for a radial "Play / Pause" segment or a hotkey).
+install -Dpm0755 packaging/bin/mx4-show      %{buildroot}%{_bindir}/mx4-show
+install -Dpm0755 packaging/bin/mx4-playpause %{buildroot}%{_bindir}/mx4-playpause
 
 # --- udev rule (the one privileged bit; vendor-distributed path) ------------
 install -Dpm0644 packaging/udev/70-mx-master-4.rules \
@@ -136,6 +154,7 @@ install -Dpm0755 packaging/solaar/setup-solaar.sh \
 %{_bindir}/mx4-radial
 %{_bindir}/mx4-config
 %{_bindir}/mx4-show
+%{_bindir}/mx4-playpause
 %{_datadir}/applications/mx4-config.desktop
 %dir %{mx4libdir}
 %{mx4libdir}/mx4d/
@@ -161,7 +180,14 @@ if [ -x %{_bindir}/udevadm ] || command -v udevadm >/dev/null 2>&1; then
 fi
 
 %changelog
-* Wed Jun 24 2026 UsiDiamond <noreply@usidiamond.dev> - 0.1.0-1
+* Thu Jun 25 2026 UsiDiamond <noreply@usidiamond.dev> - 0.1.0-1
+- Ship the mx4-playpause MPRIS helper (install + %%files).
+- Add qt6-qtquickcontrols2 runtime Requires so the config GUI's QtQuick.Controls
+  imports resolve (Fedora splits Controls 2 out of qt6-qtdeclarative).
+- Add qt6-qttools (qdbus6) + dbus-tools (dbus-send) Requires for the mx4-playpause
+  and mx4-show D-Bus helpers.
+- Add qt6-qtquickcontrols2-devel BuildRequires to complete the config GUI's
+  QuickControls2 C++ component link.
 - Initial Fedora package: init-agnostic, DE-aware MX Master 4 desktop addon
   (mx4d daemon + mx4-radial overlay + mx4-config GUI), portable XDG autostart,
   systemd user units, vendor udev rule, and Plasma-only KWin focus-bridge data.

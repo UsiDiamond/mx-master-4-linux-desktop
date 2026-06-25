@@ -26,10 +26,13 @@ Depends: ${shlibs:Depends},
          libqt6quickcontrols2-6,
          qml6-module-qtquick,
          qml6-module-qtquick-controls,
+         qml6-module-qtquick-templates,
          qml6-module-qtquick-shapes,
          qml6-module-qtquick-window,
-         qml6-module-qtquick-layouts
-Recommends: liblayershellqtinterface5
+         qml6-module-qtquick-layouts,
+         dbus-bin | dbus
+Recommends: liblayershellqtinterface6 | liblayershellqtinterface5,
+            qdbus-qt6
 Suggests: pulseaudio-utils | pipewire-bin,
           solaar
 Description: Native haptics and Actions Ring for the Logitech MX Master 4
@@ -45,6 +48,10 @@ Description: Native haptics and Actions Ring for the Logitech MX Master 4
              available, X11 otherwise), lazy-launched by the daemon;
   * mx4-config - a Qt6/QML settings GUI for haptics, ambient sources and the
              radial menu.
+ .
+ Small shell helpers are also installed: mx4-show (ask the daemon to open the
+ ring over D-Bus, bindable to any hotkey) and mx4-playpause (toggle play/pause
+ on the active MPRIS player via qdbus6 with a dbus-send fallback, no playerctl).
  .
  The package is init-agnostic: it ships a portable XDG autostart entry that
  starts the daemon on any init (systemd, OpenRC, runit, s6) and additionally
