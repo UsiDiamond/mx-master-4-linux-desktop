@@ -154,7 +154,16 @@ waveform = DAMP_COLLISION
 intensity = 50
 
 [trigger]
-divert_panel = true       ; divert the Actions Ring panel for capture
+divert_panel = auto       ; TRI-STATE — how the Actions Ring trigger is captured:
+                          ;   auto  = defer to Solaar if a Solaar background
+                          ;           process is running (no divert, no
+                          ;           contention); otherwise capture the panel
+                          ;           ourselves (standalone). This is the default.
+                          ;   true  = always capture ourselves (forced standalone).
+                          ;   false = never capture; Solaar owns the trigger and
+                          ;           its rule fires ShowMenu (daemon does haptics
+                          ;           + overlay only). Legacy true/false values in
+                          ;           existing configs keep their old meaning.
 waveform = HAPPY_ALERT    ; played on a trigger press (placeholder)
 
 [radial]
@@ -202,10 +211,25 @@ Unit tests run against an in-memory fake hidraw (no hardware needed):
 
 ```bash
 cd daemon
-pytest -q        # 31 tests
+pytest -q        # 63 tests
 ```
 
 They cover request framing / func_byte math, response demux, getFeature parsing,
 the waveform table + capability gating + fallback, the play-packet byte
 contract, setCidReporting param construction, press/release detection, config
-defaults + persistence, and task-manager detection.
+defaults + persistence (incl. the `divert_panel` tri-state + bool back-compat),
+Solaar background-process detection, the auto defer decision, and task-manager
+detection.
+
+### Solaar-first: automatic trigger deferral
+
+With `divert_panel = auto` (the default) the daemon cheaply scans `/proc` for a
+running Solaar background process. If Solaar is present it **does not** divert the
+Actions Ring panel — Solaar owns it and its rule fires `ShowMenu` — so there is
+no device contention; the daemon still provides haptics, ambient mapping and the
+overlay. If Solaar is absent the daemon captures the panel itself (standalone).
+The detector never imports `logitech_receiver` and returns `False` (never raises)
+when Solaar is not installed, so the standalone path never depends on Solaar. To
+also install the Solaar rule, run `packaging/solaar/setup-solaar.sh`. Force either
+behaviour explicitly with `divert_panel = true` (always capture) or `false`
+(never capture).

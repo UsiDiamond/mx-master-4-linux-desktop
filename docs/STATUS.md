@@ -30,11 +30,29 @@ depend on Solaar or anything else; Solaar-first is purely additive/opt-in.*
   fight Solaar — it still provides the overlay, haptics, and ambient→haptic mapping.
 - **Fallback / default**: with no Solaar, the daemon diverts + captures the panel itself
   (unchanged). Default config keeps `divert_panel = true` so standalone works out of the box.
-- **Shipped now** (no code change — uses the existing `divert_panel` flag): `packaging/solaar/`
+- **Shipped earlier** (no code change — uses the `divert_panel` flag): `packaging/solaar/`
   = `setup-solaar.sh` (idempotent; `--install-rule`, `--revert`), `mx4-rules.yaml`, `README.md`.
-- **Next (workflow):** make the daemon **auto-detect** a running Solaar and flip
-  `divert_panel` itself (no manual setup), and optionally route haptics through Solaar's
-  `feature_request` when Solaar holds the device. Standalone stays the zero-dependency default.
+- **Auto-detect — DONE (2026-06-24):** `[trigger] divert_panel` is now a **TRI-STATE**
+  `auto` / `true` / `false`, **default `auto`** (bool back-compat: legacy `true`/`false`
+  behave exactly as before). New `daemon/mx4d/solaar.py` `solaar_running()` scans `/proc`
+  for a Solaar **background** process (excludes our own `mx4d` and transient
+  `solaar config`/`show` CLI calls; never imports `logitech_receiver`; returns `False` /
+  never raises when Solaar absent). `Mx4Daemon._resolve_divert()` wires the decision at
+  trigger startup: `auto` + Solaar running → **do not divert** (log
+  `Solaar detected -> deferring …`); `auto` + no Solaar → capture standalone; `true` →
+  always capture; `false` → never capture. Daemon still does haptics + ambient + overlay
+  in all cases; only restores a divert it actually set. `config-ui` `divert_panel` is now a
+  3-way ComboBox (Auto / Always capture / Never capture) that reads+writes the tri-state
+  without coercing `auto`→`false`. Tests: tri-state parse + bool back-compat + `auto`
+  round-trip (`test_config.py`), `solaar_running()` mocked present/absent/own-process-only
+  + the auto decision (`test_solaar.py`) — **63 daemon unit tests green**; config-ui rebuilds
+  clean (cmake). **Live-verified on real hw + the user's running Solaar (pid 5673):** with
+  `divert_panel=auto` the real daemon logged `detected Solaar background process pid=5673` →
+  `Solaar detected -> deferring the Actions Ring trigger to Solaar` → `trigger diversion
+  disabled by config; panel left native`, with **no** `diverted`/`restored` lines (never
+  diverted = no contention), then clean SIGTERM shutdown. Solaar left running, user config
+  untouched. Possible future option: route haptics through Solaar's `feature_request` when
+  Solaar holds the device (decision-only today). Standalone stays the zero-dependency default.
 
 ## Firmware capability finding (important, real)
 

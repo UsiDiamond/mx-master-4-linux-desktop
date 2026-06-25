@@ -25,7 +25,7 @@ import signal
 import threading
 from typing import Optional
 
-from .config import Mx4Config, load_config
+from .config import DIVERT_AUTO, DIVERT_TRUE, Mx4Config, load_config
 from .device import MX4Device, find_mx_master_4
 from .haptics import HapticEngine
 from .overlay import OverlayController
@@ -38,6 +38,7 @@ from .sources import (
 from .sources.focus import FocusSource
 from .sources.notifications import NotificationsSource
 from .sources.sounds import SoundsSource
+from .solaar import solaar_running
 from .trigger import TriggerWatcher
 
 logger = logging.getLogger(__name__)
@@ -93,6 +94,13 @@ class Mx4Daemon:
     # -- setup -----------------------------------------------------------
     def setup(self) -> None:
         """Find the device, build the engine, trigger and sources."""
+        # Resolve (and LOG) the Solaar-defer / capture decision BEFORE opening the
+        # device. The decision is purely process-based (Solaar detection) and so
+        # is device-independent; resolving it first means the "Solaar detected ->
+        # deferring" log line always appears even if the MX4 is deeply asleep and
+        # the subsequent device probe blocks/retries.
+        divert = self._resolve_divert() if self.enable_trigger else False
+
         self.device = find_mx_master_4()
         self.haptics = HapticEngine(
             self.device.transport,
@@ -106,13 +114,49 @@ class Mx4Daemon:
             self.trigger = TriggerWatcher(
                 self.device.transport,
                 self.device.reprog_index,
-                divert=self.config.divert_panel,
+                divert=divert,
                 on_press=self._on_trigger_press,
                 on_release=self._on_trigger_release,
             )
 
         # Build ambient sources gated by their per-source enable.
         self._build_sources()
+
+    def _resolve_divert(self) -> bool:
+        """Resolve the tri-state ``[trigger] divert_panel`` to an effective bool.
+
+        * ``true``  -> divert + capture ourselves (standalone, forced).
+        * ``false`` -> never divert (Solaar-first, forced; Solaar's rule fires
+          ShowMenu). The daemon still does haptics + ambient + overlay.
+        * ``auto``  -> defer to Solaar if a Solaar background process is running
+          (do NOT divert — no contention), else capture ourselves (standalone).
+
+        The daemon does haptics + ambient + ShowMenu + overlay in ALL cases; only
+        the *trigger* diversion is gated here. We never divert when deferring.
+        """
+        mode = self.config.divert_panel
+        if mode == DIVERT_TRUE:
+            return True
+        if mode == DIVERT_AUTO and solaar_running():
+            logger.info(
+                "Solaar detected -> deferring the Actions Ring trigger to Solaar "
+                "(ensure the Solaar rule is set up: run "
+                "packaging/solaar/setup-solaar.sh or add it in Solaar's Rule "
+                "Editor)"
+            )
+            return False
+        if mode == DIVERT_AUTO:
+            logger.info(
+                "no Solaar detected -> capturing the Actions Ring panel "
+                "ourselves (standalone)"
+            )
+            return True
+        # mode == DIVERT_FALSE
+        logger.info(
+            "trigger.divert_panel=false -> leaving the Actions Ring panel to "
+            "Solaar (the daemon provides haptics + overlay only)"
+        )
+        return False
 
     def _build_sources(self) -> None:
         candidates: list[Source] = [

@@ -199,6 +199,29 @@ QString boolStr(bool v)
     return v ? QStringLiteral("true") : QStringLiteral("false");
 }
 
+// Normalise the tri-state [trigger] divert_panel exactly like config.py's
+// parse_divert_panel(): "auto" stays "auto"; truthy/falsy bool spellings map to
+// "true"/"false" (full back-compat); anything unrecognised falls back to the
+// default ("auto") so a typo never silently disables the trigger. CRITICAL: the
+// GUI must round-trip "auto" rather than coerce it through a bool (which would
+// silently lose it as "false").
+QString divertTriState(const QVariant &v)
+{
+    const QString s = v.toString().trimmed().toLower();
+    if (s == QLatin1String("auto")) {
+        return QStringLiteral("auto");
+    }
+    if (s == QLatin1String("1") || s == QLatin1String("true")
+        || s == QLatin1String("yes") || s == QLatin1String("on")) {
+        return QStringLiteral("true");
+    }
+    if (s == QLatin1String("0") || s == QLatin1String("false")
+        || s == QLatin1String("no") || s == QLatin1String("off")) {
+        return QStringLiteral("false");
+    }
+    return QStringLiteral("auto"); // default / unrecognised
+}
+
 // First-on-PATH task manager command. MUST match config.py / MenuConfig.cpp
 // ordering so the GUI's default center action agrees with both processes.
 QString detectTaskManager()
@@ -276,8 +299,10 @@ void ConfigModel::load()
         m_sourceList.push_back(s);
     }
 
-    // [trigger]
-    m_divertPanel = toBool(ini.value(QStringLiteral("trigger/divert_panel")), true);
+    // [trigger] — tri-state: missing value defaults to "auto".
+    m_divertPanel = ini.contains(QStringLiteral("trigger/divert_panel"))
+        ? divertTriState(ini.value(QStringLiteral("trigger/divert_panel")))
+        : QStringLiteral("auto");
     m_triggerWaveform = ini.value(QStringLiteral("trigger/waveform"),
                                   QStringLiteral("HAPPY_ALERT")).toString();
 
@@ -397,8 +422,10 @@ bool ConfigModel::save()
         ini.set(sec, QStringLiteral("intensity"), QString::number(s.intensity));
     }
 
+    // Write the tri-state verbatim (normalised); NEVER via boolStr(), or "auto"
+    // would degrade to "false" and the Solaar-defer behaviour would be lost.
     ini.set(QStringLiteral("trigger"), QStringLiteral("divert_panel"),
-            boolStr(m_divertPanel));
+            divertTriState(m_divertPanel));
     ini.set(QStringLiteral("trigger"), QStringLiteral("waveform"),
             m_triggerWaveform);
 
@@ -511,10 +538,11 @@ void ConfigModel::setHapticLevel(int v)
     if (m_hapticLevel == v) return;
     m_hapticLevel = v; markDirty(); emit changed();
 }
-void ConfigModel::setDivertPanel(bool v)
+void ConfigModel::setDivertPanel(const QString &v)
 {
-    if (m_divertPanel == v) return;
-    m_divertPanel = v; markDirty(); emit changed();
+    const QString norm = divertTriState(v);
+    if (m_divertPanel == norm) return;
+    m_divertPanel = norm; markDirty(); emit changed();
 }
 void ConfigModel::setTriggerWaveform(const QString &v)
 {

@@ -189,11 +189,30 @@ ApplicationWindow {
                 title: qsTr("Actions Ring trigger")
                 subtitle: qsTr("The haptic touch panel that summons the radial menu.")
 
-                Switch {
-                    text: qsTr("Divert the Actions Ring panel for capture")
-                    checked: Config.divertPanel
-                    Accessible.name: text
-                    onToggled: Config.divertPanel = checked
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label {
+                        text: qsTr("Trigger capture")
+                        Layout.preferredWidth: 160
+                    }
+                    ComboBox {
+                        id: divertCombo
+                        Layout.fillWidth: true
+                        // Index -> tri-state value the daemon understands.
+                        readonly property var divertValues: ["auto", "true", "false"]
+                        model: [
+                            qsTr("Auto (defer to Solaar if running)"),
+                            qsTr("Always capture (standalone)"),
+                            qsTr("Never capture (Solaar handles it)")
+                        ]
+                        Accessible.name: qsTr("Actions Ring trigger capture mode")
+                        // Map the stored tri-state back to an index (default Auto).
+                        currentIndex: {
+                            var i = divertValues.indexOf(Config.divertPanel)
+                            return i >= 0 ? i : 0
+                        }
+                        onActivated: Config.divertPanel = divertValues[currentIndex]
+                    }
                 }
                 RowLayout {
                     Layout.fillWidth: true

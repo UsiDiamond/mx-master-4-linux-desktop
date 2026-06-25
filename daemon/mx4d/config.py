@@ -28,6 +28,35 @@ CONFIG_DIR = os.path.join(
 )
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.ini")
 
+# [trigger] divert_panel is a TRI-STATE. "auto" (the default) defers the Actions
+# Ring trigger to a running Solaar and only captures it ourselves when Solaar is
+# absent; "true"/"false" force the standalone-capture / never-capture behaviour
+# exactly as the legacy bool did (full back-compat).
+DIVERT_AUTO = "auto"
+DIVERT_TRUE = "true"
+DIVERT_FALSE = "false"
+DIVERT_DEFAULT = DIVERT_AUTO
+
+
+def parse_divert_panel(value: str) -> str:
+    """Normalise a ``divert_panel`` value to ``"auto"`` / ``"true"`` / ``"false"``.
+
+    Tri-state with exact bool back-compat: the legacy truthy spellings
+    (``1``/``true``/``yes``/``on``) map to ``"true"`` and the falsy ones
+    (``0``/``false``/``no``/``off``) to ``"false"`` — so existing configs behave
+    identically to before. ``auto`` maps to ``"auto"``. Anything unrecognised
+    falls back to the default (``"auto"``) so a typo never silently disables the
+    trigger.
+    """
+    s = (value or "").strip().lower()
+    if s == DIVERT_AUTO:
+        return DIVERT_AUTO
+    if s in ("1", "true", "yes", "on"):
+        return DIVERT_TRUE
+    if s in ("0", "false", "no", "off"):
+        return DIVERT_FALSE
+    return DIVERT_DEFAULT
+
 
 # Ordered task-manager candidates: (binary, full command). The center radial
 # action defaults to the first candidate whose binary is present. KDE first,
@@ -81,7 +110,9 @@ class Mx4Config:
     # per-source
     sources: dict[str, SourceConfig]
     # [trigger]
-    divert_panel: bool
+    # Tri-state: "auto" (defer to Solaar if running, else capture) / "true"
+    # (always capture, standalone) / "false" (never capture, Solaar handles it).
+    divert_panel: str
     trigger_waveform: str
     # [radial]
     radial_center_action: str
@@ -111,7 +142,9 @@ class Mx4Config:
             _set(p, section, "enabled", _b(sc.enabled))
             _set(p, section, "waveform", sc.waveform)
             _set(p, section, "intensity", str(sc.intensity))
-        _set(p, "trigger", "divert_panel", _b(self.divert_panel))
+        # Tri-state value written verbatim ("auto"/"true"/"false"); never coerced
+        # through _b(), or "auto" would silently degrade to "false".
+        _set(p, "trigger", "divert_panel", parse_divert_panel(self.divert_panel))
         _set(p, "trigger", "waveform", self.trigger_waveform)
         # Use the SAME key the C++ overlay reads (QSettings "center/command")
         # so a user editing the shared INI affects both processes. The legacy
@@ -171,7 +204,10 @@ def _default_parser() -> configparser.ConfigParser:
         "intensity": "50",
     }
     p["trigger"] = {
-        "divert_panel": "true",
+        # Tri-state: "auto" (defer to a running Solaar, else capture ourselves) /
+        # "true" (always capture, standalone) / "false" (never capture, Solaar
+        # owns the trigger). Legacy "true"/"false" configs keep their old meaning.
+        "divert_panel": DIVERT_DEFAULT,
         # COMPLETED (0x07) is NOT supported by the observed MX4 firmware
         # (capability mask 0x0001003C). HAPPY_ALERT is, and reads as a clear
         # confirmation tick; the engine also falls back if this is unsupported.
@@ -252,7 +288,7 @@ def _build(parser: configparser.ConfigParser) -> Mx4Config:
         quiet_hours_enabled=getbool("ambient", "quiet_hours"),
         debounce_interval=getfloat("ambient", "debounce_interval"),
         sources=sources,
-        divert_panel=getbool("trigger", "divert_panel"),
+        divert_panel=parse_divert_panel(get("trigger", "divert_panel")),
         trigger_waveform=get("trigger", "waveform"),
         radial_center_action=center,
         radial_center_label=center_label,

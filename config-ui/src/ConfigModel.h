@@ -64,7 +64,11 @@ class ConfigModel : public QObject
     Q_PROPERTY(int hapticLevel READ hapticLevel WRITE setHapticLevel NOTIFY changed)
 
     // [trigger]
-    Q_PROPERTY(bool divertPanel READ divertPanel WRITE setDivertPanel NOTIFY changed)
+    // divertPanel is TRI-STATE: "auto" (defer to Solaar if running) / "true"
+    // (always capture, standalone) / "false" (never capture, Solaar handles it).
+    // Kept as a string so the GUI reads AND writes "auto" without a bool toggle
+    // silently coercing it to "false".
+    Q_PROPERTY(QString divertPanel READ divertPanel WRITE setDivertPanel NOTIFY changed)
     Q_PROPERTY(QString triggerWaveform READ triggerWaveform WRITE setTriggerWaveform NOTIFY changed)
 
     // [radial] center
@@ -94,7 +98,7 @@ public:
     bool quietHours() const { return m_quietHours; }
     double debounceInterval() const { return m_debounceInterval; }
     int hapticLevel() const { return m_hapticLevel; }
-    bool divertPanel() const { return m_divertPanel; }
+    QString divertPanel() const { return m_divertPanel; }
     QString triggerWaveform() const { return m_triggerWaveform; }
     QString centerCommand() const { return m_centerCommand; }
     QString centerLabel() const { return m_centerLabel; }
@@ -109,7 +113,7 @@ public:
     void setQuietHours(bool v);
     void setDebounceInterval(double v);
     void setHapticLevel(int v);
-    void setDivertPanel(bool v);
+    void setDivertPanel(const QString &v);
     void setTriggerWaveform(const QString &v);
     void setCenterCommand(const QString &v);
     void setCenterLabel(const QString &v);
@@ -170,8 +174,8 @@ private:
     bool m_quietHours = false;
     double m_debounceInterval = 0.12;
     int m_hapticLevel = 60;
-    // [trigger]
-    bool m_divertPanel = true;
+    // [trigger] — tri-state "auto"/"true"/"false" (default "auto").
+    QString m_divertPanel = QStringLiteral("auto");
     QString m_triggerWaveform = QStringLiteral("HAPPY_ALERT");
     // [radial]
     QString m_centerCommand;
