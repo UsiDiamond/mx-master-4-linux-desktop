@@ -260,6 +260,35 @@ An `.rpm` installs into `/usr/bin`, `/usr/lib/udev/rules.d`,
 
 ---
 
+## Triggering the ring
+
+The menu opens when the daemon receives `ShowMenu` over D-Bus. Pick whichever way
+fits how you want to use the mouse:
+
+1. **A global hotkey or a spare button — recommended, changes nothing else.** Bind the
+   installed `mx4-show` helper to a shortcut:
+   - **KDE Plasma:** System Settings → Shortcuts → Custom Shortcuts → new → command `mx4-show`.
+   - **LXQt:** Preferences → Shortcut Keys → add → command `mx4-show`.
+
+   This does **not** alter any mouse button's existing behaviour.
+
+2. **The haptic touch panel — this REPLACES what the panel does today.** Diverting the
+   panel to open the ring *takes it over*, so it stops doing whatever it did before
+   (e.g. a window/focus action). Enable only if you want the panel to *be* the ring:
+   - Standalone: `[trigger] divert_panel = true` (the daemon captures the panel itself).
+   - Solaar-first: `divert_panel = auto` (default — defers to Solaar when it's running)
+     plus the Solaar rule from `packaging/solaar/` (see its README).
+
+3. **Directly, for testing:** `mx4-show` (or the raw `dbus-send … ShowMenu`).
+
+> **A mouse button stopped doing its old job?** That's the panel/control having been
+> *diverted* for the ring. Restore it: set `[trigger] divert_panel = false` (and, if you
+> used the Solaar path, set its diversion back to *Regular* in Solaar's UI), then trigger
+> the ring with `mx4-show` on a hotkey instead. `divert_panel = auto` only diverts the
+> panel when Solaar is **not** running; `false` guarantees the panel is never touched.
+
+---
+
 ## Troubleshooting
 
 - **Daemon can't open the device / permission denied:** the udev rule grants

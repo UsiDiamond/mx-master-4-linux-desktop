@@ -20,6 +20,11 @@ This addon is **Solaar-first with a self-sufficient fallback**:
 
 So the two paths are independent: Solaar-first is purely additive.
 
+> **Don't want to give up the panel's current behaviour?** You don't have to use the
+> panel as the trigger at all. Bind the `mx4-show` helper to a hotkey or spare button
+> instead (see [docs/INSTALL.md](../../docs/INSTALL.md) → "Triggering the ring") — the
+> panel keeps doing whatever it does today, and the ring opens from your shortcut.
+
 ## How the trigger works under Solaar
 
 ```

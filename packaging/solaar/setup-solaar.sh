@@ -43,7 +43,8 @@ PY
 
 if [ "$REVERT" = 1 ]; then
   echo "==> Reverting to the standalone (self-sufficient) path"
-  solaar config "$DEVICE" divert-keys Haptic Regular || echo "  (could not un-divert via Solaar; do it in Solaar's GUI)"
+  solaar config "$DEVICE" divert-keys Haptic Regular 2>/dev/null \
+    || echo "  ! could not un-divert via the Solaar CLI (marshalling bug); set Haptic = Regular in Solaar's UI."
   set_divert_panel true
   echo "  NOTE: remove the mx4 'Haptic -> ShowMenu' rule from Solaar's Rule Editor if you added it."
   echo "Done. The built-in daemon will divert + capture the panel itself again."
@@ -52,7 +53,11 @@ fi
 
 echo "==> Enabling Solaar-first trigger for '$DEVICE'"
 echo "--> diverting the Actions Ring panel in Solaar (Haptic = Diverted)"
-solaar config "$DEVICE" divert-keys Haptic Diverted
+if ! solaar config "$DEVICE" divert-keys Haptic Diverted 2>/dev/null; then
+  echo "  ! 'solaar config divert-keys' failed (a known Solaar CLI marshalling bug:"
+  echo "    \"Unable to marshal str as an array\"). Set it by hand in Solaar's UI instead:"
+  echo "    open Solaar -> your MX Master 4 -> Key/Button Diversion -> Haptic = Diverted."
+fi
 
 echo "--> telling the daemon NOT to divert the panel (Solaar owns it now)"
 set_divert_panel false

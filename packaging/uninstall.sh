@@ -91,7 +91,7 @@ AUTOSTART_ENABLED="${AUTOSTART_DIR}/mx4desktop.desktop"
 # final `[[ -e ]]` test, which is non-zero when the last path is already gone,
 # and under `set -e` that would abort the script on a second (idempotent) run.
 rm_if() { local p; for p in "$@"; do [[ -e "$p" ]] && { rm -rf "$p" && log "removed $p"; }; done; :; }
-rm_if "${BIN_DIR}/mx4-radial" "${BIN_DIR}/mx4-config" "${BIN_DIR}/mx4d" \
+rm_if "${BIN_DIR}/mx4-radial" "${BIN_DIR}/mx4-config" "${BIN_DIR}/mx4d" "${BIN_DIR}/mx4-show" \
       "${DESKTOP_FILE}" "${LIB_DIR}" "${AUTOSTART_TEMPLATE}"
 # Only remove an enabled autostart entry if it is OURS (Exec runs mx4d), so a
 # hand-rolled user entry is never clobbered.

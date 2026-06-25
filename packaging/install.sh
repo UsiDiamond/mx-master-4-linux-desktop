@@ -170,6 +170,11 @@ DESKTOP_DST="${APPS_DIR}/mx4-config.desktop"
 install -Dm644 "${CONFIG_SRC}/mx4-config.desktop" "${DESKTOP_DST}"
 log "installed ${DESKTOP_DST}"
 
+# mx4-show: a hotkey/button helper that opens the ring WITHOUT diverting any
+# mouse button (bind it to a global shortcut in your DE). See docs/INSTALL.md.
+install -Dm755 "${SCRIPT_DIR}/bin/mx4-show" "${BIN_DIR}/mx4-show"
+log "installed ${BIN_DIR}/mx4-show"
+
 # --- 2. install the daemon as a python package (NO venv, NO pip) -------------
 step "Installing the daemon package"
 # Replace the package tree atomically-ish: clear the old copy, copy fresh, so a
