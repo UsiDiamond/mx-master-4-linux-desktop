@@ -8,6 +8,17 @@ delivered to us as a ``0x1B04`` ``divertedButtonsEvent`` notification (function
 CIDs; ``0x0000`` means none. A press is "our CID appeared", a release is "our
 CID disappeared".
 
+When the control additionally has **raw-XY reporting** enabled (it is then in
+Solaar's "Mouse Gestures" mode, i.e. ``divert-keys = 2``), the firmware ALSO
+emits a ``divertedRawXYEvent`` (function ``0x01``) on every sensor movement
+while the control is held. Its payload is two signed big-endian 16-bit
+displacements ``dx``/``dy`` beginning at report offset 4. We surface these to
+``on_raw_xy`` so the daemon can drive a flick/scrub interaction. We never enable
+raw-XY ourselves under Solaar (a confirmed write broken-pipes and a
+fire-and-forget one does not stick on this firmware); Solaar owns that setting
+and the kernel broadcasts the events to our hidraw reader just like the button
+events, so we read them passively.
+
 We **always** restore the control to non-diverted on shutdown (stop(), atexit,
 and a signal handler installed by the daemon) so the user's mouse is left clean.
 
@@ -61,8 +72,11 @@ HOLD_THRESHOLD_DEFAULT = 0.4
 REPROG_FN_GET_COUNT = 0x0
 REPROG_FN_GET_CID_INFO = 0x1
 REPROG_FN_SET_CID_REPORTING = 0x3
-# divertedButtonsEvent is the function-0x00 broadcast notification.
+# Event notifications are broadcasts whose software-id nibble is 0; the function
+# nibble distinguishes them: 0x00 = divertedButtonsEvent (press/release),
+# 0x01 = divertedRawXYEvent (sensor movement while a raw-XY key is held).
 REPROG_EVENT_DIVERTED_BUTTONS = 0x00
+REPROG_EVENT_DIVERTED_RAW_XY = 0x01
 
 # The MX Master 4 haptic "Actions Ring" panel control id.
 ACTIONS_RING_CID = 0x01A0
@@ -73,6 +87,8 @@ _FLAG_REMAP_VALID = 1 << 4
 _FLAG_DIVERT_VALID = 1 << 5
 
 PressCallback = Callable[[int], None]
+# Called with (dx, dy) on each divertedRawXYEvent while the panel is held.
+RawXYCallback = Callable[[int, int], None]
 
 
 def build_set_cid_reporting_params(cid: int, divert: bool) -> list[int]:
@@ -112,6 +128,21 @@ def parse_pressed_cids(report: bytes) -> list[int]:
     return pressed
 
 
+def parse_raw_xy(report: bytes) -> tuple[int, int]:
+    """Extract ``(dx, dy)`` from a divertedRawXYEvent report.
+
+    The payload is two signed big-endian 16-bit displacements starting at report
+    offset 4 (``struct.unpack("!hh", report[4:8])`` in Solaar's reference
+    decoder). A short/garbled report yields ``(0, 0)`` rather than raising, so a
+    bad packet can never kill the reader thread.
+    """
+    if len(report) < 8:
+        return (0, 0)
+    dx = int.from_bytes(report[4:6], "big", signed=True)
+    dy = int.from_bytes(report[6:8], "big", signed=True)
+    return (dx, dy)
+
+
 class TriggerWatcher:
     """Diverts the Actions Ring panel and reports its presses/releases."""
 
@@ -129,6 +160,7 @@ class TriggerWatcher:
         on_tap: Optional[PressCallback] = None,
         on_hold: Optional[PressCallback] = None,
         on_release: Optional[PressCallback] = None,
+        on_raw_xy: Optional[RawXYCallback] = None,
     ) -> None:
         """Configure the watcher (call :meth:`start` to actually divert).
 
@@ -154,6 +186,10 @@ class TriggerWatcher:
         :param on_hold: called with the CID once a press is held at least
             ``hold_threshold`` (fires while still held, before release).
         :param on_release: called with the CID on every release (gesture end).
+        :param on_raw_xy: called with ``(dx, dy)`` on each divertedRawXYEvent
+            while the panel is held — only ever fires when raw-XY reporting is
+            enabled on the control (Solaar "Mouse Gestures" mode). Inert
+            otherwise, so wiring it is free when the feature is off.
         """
         self.transport = transport
         self.reprog_index = reprog_index
@@ -166,6 +202,7 @@ class TriggerWatcher:
         self.on_tap = on_tap
         self.on_hold = on_hold
         self.on_release = on_release
+        self.on_raw_xy = on_raw_xy
 
         self._pressed = False
         self._held = False
@@ -316,19 +353,47 @@ class TriggerWatcher:
 
     # -- notification handling ------------------------------------------
     def _on_notification(self, report: bytes) -> None:
-        """Translate a divertedButtonsEvent into press/tap/hold/release."""
-        # Only the function-0x00 broadcast (software-id nibble 0) is a button
-        # event; the reader thread already filtered to our feature index.
+        """Route a 0x1B04 notification to the button or raw-XY handler.
+
+        The reader thread already filtered to our feature index. A notification
+        carries software-id nibble 0; its function nibble then picks the event:
+        ``0x0`` = divertedButtonsEvent (press/release), ``0x1`` =
+        divertedRawXYEvent (movement). Anything else is ignored.
+        """
         if len(report) < 4:
             return
-        if (report[3] & 0x0F) != 0:
+        func_nibble = report[3]
+        if (func_nibble & 0x0F) != 0:
             return  # a reply with a software id, not a notification
+        event = (func_nibble >> 4) & 0x0F
+        if event == REPROG_EVENT_DIVERTED_BUTTONS:
+            self._on_buttons_event(report)
+        elif event == REPROG_EVENT_DIVERTED_RAW_XY:
+            self._on_raw_xy_event(report)
+
+    def _on_buttons_event(self, report: bytes) -> None:
+        """Translate a divertedButtonsEvent into press/tap/hold/release."""
         pressed_cids = parse_pressed_cids(report)
         now_pressed = self.cid in pressed_cids
         if now_pressed and not self._pressed:
             self._on_press()
         elif not now_pressed and self._pressed:
             self._on_release()
+
+    def _on_raw_xy_event(self, report: bytes) -> None:
+        """Forward a divertedRawXYEvent's ``(dx, dy)`` while the panel is held.
+
+        The firmware only emits these while a raw-XY-enabled control is down, but
+        we gate on our own ``_pressed`` state too so a stray event outside a press
+        (or for a different held control) is never delivered. A zero displacement
+        is dropped — it carries no direction and only happens at the edges.
+        """
+        if not self._pressed or self.on_raw_xy is None:
+            return
+        dx, dy = parse_raw_xy(report)
+        if dx == 0 and dy == 0:
+            return
+        self.on_raw_xy(dx, dy)
 
     def _on_press(self) -> None:
         """Panel went down: fire on_press and arm the hold timer."""

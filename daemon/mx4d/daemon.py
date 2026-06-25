@@ -101,6 +101,11 @@ class Mx4Daemon:
         # overlay's Dismissed signal (and when we ourselves Hide). Touched only
         # on the GLib mainloop, so no lock is needed.
         self._overlay_visible = False
+        # Net thumb-slide accumulated during the current press, in raw sensor
+        # units. Only ever advanced when raw-XY reporting is on (Solaar "Mouse
+        # Gestures" mode); reset on each press. Touched on the HID reader thread.
+        self._flick_dx = 0
+        self._flick_dy = 0
 
     # -- setup -----------------------------------------------------------
     def setup(self) -> None:
@@ -178,6 +183,7 @@ class Mx4Daemon:
                 on_tap=self._on_trigger_tap,
                 on_hold=self._on_trigger_hold,
                 on_release=self._on_trigger_release,
+                on_raw_xy=self._on_trigger_raw_xy,
             )
 
         # Build ambient sources gated by their per-source enable.
@@ -360,9 +366,32 @@ class Mx4Daemon:
     def _on_trigger_press(self, cid: int) -> None:
         """Actions-Ring pressed: emit ``TriggerPressed`` (open happens on tap/hold)."""
         logger.debug("Actions Ring pressed (CID 0x%04X)", cid)
+        # Reset the per-press flick accumulator. Runs on the HID reader thread,
+        # ahead of any raw-XY event for this press (the press notification always
+        # precedes the movement ones), so the slide total starts clean.
+        self._flick_dx = 0
+        self._flick_dy = 0
         from gi.repository import GLib
 
         GLib.idle_add(self._emit_trigger_pressed)
+
+    def _on_trigger_raw_xy(self, dx: int, dy: int) -> None:
+        """Accumulate a thumb-slide sample (raw-XY reporting / gesture mode).
+
+        Runs on the HID reader thread. We only sum here (cheap, GIL-safe) and log
+        at debug; the net slide is reported on release. This fires solely when
+        raw-XY reporting is enabled on the panel (Solaar "Mouse Gestures" mode),
+        so it is inert in the default Diverted setup.
+        """
+        self._flick_dx += dx
+        self._flick_dy += dy
+        logger.debug(
+            "Actions Ring slide d=(%+d,%+d) total=(%+d,%+d)",
+            dx,
+            dy,
+            self._flick_dx,
+            self._flick_dy,
+        )
 
     def _on_trigger_tap(self, cid: int) -> None:
         """A short tap of the panel: toggle the tap overlay (radial menu)."""
@@ -448,6 +477,15 @@ class Mx4Daemon:
     def _on_trigger_release(self, cid: int) -> None:
         """Actions-Ring released: emit ``TriggerReleased`` (marshalled to mainloop)."""
         logger.debug("Actions Ring released (CID 0x%04X)", cid)
+        # If a slide was tracked this press, log its net direction once. This is
+        # the readable confirmation that raw-XY (gesture) reporting is flowing and
+        # the seed for flick-to-pick; zero when raw-XY is off (the normal case).
+        if self._flick_dx or self._flick_dy:
+            logger.info(
+                "Actions Ring slide on release: net=(%+d,%+d)",
+                self._flick_dx,
+                self._flick_dy,
+            )
         from gi.repository import GLib
 
         GLib.idle_add(self._emit_trigger_released)

@@ -9,6 +9,7 @@ from mx4d.trigger import (
     TriggerWatcher,
     build_set_cid_reporting_params,
     parse_pressed_cids,
+    parse_raw_xy,
 )
 
 
@@ -155,4 +156,77 @@ def test_listen_only_subscribes_without_diverting(transport, fake_device):
     _release(fake_device)
     time.sleep(0.05)
     assert taps == [ACTIONS_RING_CID]
+    watcher.stop()
+
+
+def _raw_xy(fake_device, dx: int, dy: int):
+    """Inject a divertedRawXYEvent (function 0x01) carrying signed dx/dy."""
+    payload = dx.to_bytes(2, "big", signed=True) + dy.to_bytes(2, "big", signed=True)
+    fake_device.send_notification(
+        bytes([0x11, fake_device.device_index, 0x0D, 0x10]) + payload + b"\x00" * 12
+    )
+
+
+def test_parse_raw_xy_signed_and_short():
+    # function byte 0x10 -> rawXY; payload is signed big-endian dx, dy.
+    report = bytes([0x11, 2, 0x0D, 0x10, 0x01, 0x2C, 0xFF, 0xCE] + [0] * 12)
+    assert parse_raw_xy(report) == (300, -50)
+    # A truncated report yields (0, 0) instead of raising.
+    assert parse_raw_xy(bytes([0x11, 2, 0x0D, 0x10, 0x01])) == (0, 0)
+
+
+def test_raw_xy_forwarded_only_while_pressed(transport, fake_device):
+    moves: list[tuple[int, int]] = []
+    watcher = TriggerWatcher(
+        transport, 0x0D, on_raw_xy=lambda dx, dy: moves.append((dx, dy))
+    )
+    assert watcher.start() is True
+
+    # A rawXY event BEFORE any press is ignored (we are not pressed).
+    _raw_xy(fake_device, 10, 20)
+    time.sleep(0.05)
+    assert moves == []
+
+    # Press, then two slides, then a zero sample (dropped), then release. The
+    # short gaps keep each report in its own read() — a real hidraw delivers one
+    # report per read; the socketpair fake would otherwise coalesce them.
+    _press(fake_device)
+    time.sleep(0.05)
+    _raw_xy(fake_device, 300, -50)
+    time.sleep(0.02)
+    _raw_xy(fake_device, -5, 7)
+    time.sleep(0.02)
+    _raw_xy(fake_device, 0, 0)  # no direction -> dropped
+    time.sleep(0.05)
+    _release(fake_device)
+    time.sleep(0.05)
+    assert moves == [(300, -50), (-5, 7)]
+
+    # After release we are no longer pressed -> further rawXY is ignored.
+    _raw_xy(fake_device, 99, 99)
+    time.sleep(0.05)
+    assert moves == [(300, -50), (-5, 7)]
+    watcher.stop()
+
+
+def test_raw_xy_does_not_disturb_button_routing(transport, fake_device):
+    # With an on_raw_xy handler wired, a normal press/release (function 0x00)
+    # must still produce a tap exactly as before — the function-nibble routing
+    # keeps the two event kinds separate.
+    taps: list[int] = []
+    moves: list[tuple[int, int]] = []
+    watcher = TriggerWatcher(
+        transport,
+        0x0D,
+        hold_threshold=0.3,
+        on_tap=taps.append,
+        on_raw_xy=lambda dx, dy: moves.append((dx, dy)),
+    )
+    assert watcher.start() is True
+    _press(fake_device)
+    time.sleep(0.05)
+    _release(fake_device)
+    time.sleep(0.05)
+    assert taps == [ACTIONS_RING_CID]
+    assert moves == []  # no rawXY events were sent
     watcher.stop()
