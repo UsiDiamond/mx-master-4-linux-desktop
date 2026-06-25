@@ -1,0 +1,23 @@
+[Unit]
+Description=MX Master 4 desktop daemon (native haptics + Actions Ring trigger)
+Documentation=https://github.com/UsiDiamond/mx-master-4-desktop
+# Start once a graphical session is up so the D-Bus session bus, X/Wayland
+# display and the notification daemon are available.
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+# Runs as the session user; no root required (the receiver hidraw node carries
+# a session udev ACL). Adjust the python path if installed elsewhere.
+ExecStart=/usr/bin/python -m mx4d
+Restart=on-failure
+RestartSec=3
+# Graceful stop so the daemon's SIGTERM handler restores the diverted panel.
+KillSignal=SIGTERM
+TimeoutStopSec=10
+# Light hardening (user-service friendly).
+NoNewPrivileges=true
+
+[Install]
+WantedBy=graphical-session.target
