@@ -251,12 +251,31 @@ class OverlayController:
 
         import subprocess
 
+        # On a Wayland session WITH XWayland available, run the overlay under
+        # XWayland (xcb): a native Wayland layer-shell client cannot read the
+        # global cursor and so opens centered on the wrong monitor, whereas the
+        # XWayland (X11) path anchors the overlay at the pointer — on the screen
+        # the cursor is actually on. An explicit QT_QPA_PLATFORM is respected.
+        env = None
+        if (
+            os.environ.get("WAYLAND_DISPLAY")
+            and os.environ.get("DISPLAY")
+            and not os.environ.get("QT_QPA_PLATFORM")
+        ):
+            env = dict(os.environ)
+            env["QT_QPA_PLATFORM"] = "xcb"
+            logger.info(
+                "overlay: Wayland + XWayland detected -> launching under xcb so "
+                "the overlay opens on the cursor's monitor"
+            )
+
         try:
             # No shell (argv list) so menu/command config cannot inject. The
             # overlay runs in SERVICE mode (no --demo) so it stays resident.
             self._proc = subprocess.Popen(  # noqa: S603 - argv list, no shell
                 argv,
                 stdin=subprocess.DEVNULL,
+                env=env,
             )
             logger.info("launched overlay: %s (pid %d)", " ".join(argv), self._proc.pid)
         except OSError as exc:
