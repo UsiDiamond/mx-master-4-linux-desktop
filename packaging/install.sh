@@ -205,13 +205,21 @@ EOF
 chmod 755 "${BIN_DIR}/mx4d"
 log "installed ${BIN_DIR}/mx4d (system python: ${PYTHON_BIN})"
 
+# Supervisor: keeps the daemon alive across MX4 sleep/wake and the boot-time
+# race where the device is not ready at login (the daemon exits when the MX4 is
+# absent; autostart fires only once). Autostart runs THIS, which relaunches the
+# daemon with backoff. Installed verbatim from the repo.
+install -Dm755 "${SCRIPT_DIR}/bin/mx4d-supervise" "${BIN_DIR}/mx4d-supervise"
+log "installed ${BIN_DIR}/mx4d-supervise"
+
 # --- 3. portable XDG autostart template (init-agnostic) ---------------------
 step "Autostart (portable XDG entry)"
 # Install the template into our data dir always. We rewrite Exec= to the
-# absolute mx4d launcher so it works even when ~/.local/bin is not on the
-# session PATH (common under display managers).
+# absolute supervisor + absolute mx4d launcher so it works even when
+# ~/.local/bin is not on the session PATH (common under display managers), and
+# so a device-not-ready-at-login no longer leaves haptics dead until next login.
 install -Dm644 "${AUTOSTART_SRC}" "${AUTOSTART_TEMPLATE}"
-"${PYTHON_BIN}" - "${AUTOSTART_TEMPLATE}" "${BIN_DIR}/mx4d" <<'PYEOF'
+"${PYTHON_BIN}" - "${AUTOSTART_TEMPLATE}" "${BIN_DIR}/mx4d-supervise ${BIN_DIR}/mx4d" <<'PYEOF'
 import sys
 path, exec_path = sys.argv[1], sys.argv[2]
 with open(path, encoding="utf-8") as fh:

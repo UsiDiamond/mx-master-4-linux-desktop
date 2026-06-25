@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+#
+# mx4d-supervise — keep the mx4 daemon alive across MX Master 4 sleep/wake and
+# the boot-time race where the device is not yet ready at login.
+#
+# The daemon intentionally exits when the MX4 is absent (asleep, unplugged, or
+# its Bolt receiver not yet enumerated at login). Autostart fires once, so a
+# device that is not ready at that instant would leave haptics dead until the
+# next login. This wrapper relaunches the daemon with capped backoff so it keeps
+# trying until the device appears, and transparently reconnects when the mouse
+# wakes from sleep mid-session.
+#
+# Args: the daemon command to run (default: `mx4d` resolved on PATH). The
+# autostart entry passes the absolute launcher path so it works even when
+# ~/.local/bin is not on the display-manager session PATH.
+set -u
+
+# Default to `mx4d` on PATH when no command is given.
+if [ "$#" -eq 0 ]; then
+    set -- mx4d
+fi
+
+child=0
+# On logout / session teardown (SIGTERM/HUP) or Ctrl-C, stop supervising and
+# take the daemon down with us instead of respawning it.
+cleanup() {
+    if [ "$child" -ne 0 ]; then
+        kill "$child" 2>/dev/null
+        wait "$child" 2>/dev/null
+    fi
+    exit 0
+}
+trap cleanup TERM INT HUP
+
+min=1
+max=10
+backoff="$min"
+while true; do
+    start="$SECONDS"
+    "$@" &
+    child=$!
+    wait "$child"
+    child=0
+    # A run that stayed up a good while was healthy and merely lost the device
+    # (mouse slept); reset the backoff so the reconnect after a wake is prompt.
+    if [ $(( SECONDS - start )) -ge 20 ]; then
+        backoff="$min"
+    fi
+    sleep "$backoff"
+    backoff=$(( backoff * 2 ))
+    [ "$backoff" -gt "$max" ] && backoff="$max"
+done
