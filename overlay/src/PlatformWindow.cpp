@@ -111,13 +111,16 @@ void PlatformWindow::positionForShow(QQuickWindow *window, const QSize &desiredS
     if (!window) {
         return;
     }
+    const QPoint cursor = QCursor::pos();
+    QScreen *screen = QGuiApplication::screenAt(cursor);
+    if (!screen) {
+        screen = QGuiApplication::primaryScreen();
+    }
+    qCInfo(lcPlatform) << "show: cursor" << cursor << "-> screen"
+                       << (screen ? screen->name() : QStringLiteral("?"))
+                       << (screen ? screen->geometry() : QRect());
+
     if (m_backend == Backend::X11Cursor || m_backend == Backend::Fallback) {
-        // Center the window ON the cursor (X11 can read the global pointer).
-        const QPoint cursor = QCursor::pos();
-        QScreen *screen = QGuiApplication::screenAt(cursor);
-        if (!screen) {
-            screen = QGuiApplication::primaryScreen();
-        }
         const QRect bounds = screen->geometry();
         // Bind the window to the cursor's screen so a multi-monitor map lands on
         // the right output (must be set before show()); then center on the
@@ -130,8 +133,13 @@ void PlatformWindow::positionForShow(QQuickWindow *window, const QSize &desiredS
         topLeft.setY(qBound(bounds.top(), topLeft.y(),
                             bounds.bottom() - desiredSize.height()));
         window->setPosition(topLeft);
+    } else {
+        // Wayland layer-shell can't place at an absolute x,y, but binding the
+        // surface to the cursor's screen makes the compositor center it on the
+        // RIGHT output. Best-effort: if QCursor::pos() is unreliable here it
+        // falls back to the primary screen (same as before).
+        window->setScreen(screen);
     }
-    // Wayland: the compositor centers; nothing to do.
 }
 
 } // namespace mx4
