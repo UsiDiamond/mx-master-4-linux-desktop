@@ -43,6 +43,19 @@ public slots: // exported as D-Bus methods
     // of a radial ring.
     Q_SCRIPTABLE void ShowMedia();
 
+    // Thumb-slide (flick) gesture, driven by the daemon while the panel is held:
+    //   ShowFlickRing(menuId)   open the ring in flick mode (no mouse pick)
+    //   SetFlickVector(dx, dy)  highlight the segment at that slide direction
+    //   CommitFlick()           activate the highlighted segment and dismiss
+    // and seek-scrub on the media panel:
+    //   ScrubSeek(dx)           preview a seek by a net horizontal slide
+    //   CommitSeek()            apply the previewed seek position
+    Q_SCRIPTABLE void ShowFlickRing(const QString &menuId);
+    Q_SCRIPTABLE void SetFlickVector(int dx, int dy);
+    Q_SCRIPTABLE void CommitFlick();
+    Q_SCRIPTABLE void ScrubSeek(int dx);
+    Q_SCRIPTABLE void CommitSeek();
+
     // Programmatic commit of a segment as if the user selected it, driving the
     // same commit()/launch path. Returns whether a matching item was committed.
     // Commit("")/Commit("center") commits the center hub action. These make the
@@ -75,6 +88,12 @@ signals: // exported as D-Bus signals
     void showRequested(const QString &menuId);
     void showMediaRequested();
     void hideRequested();
+    // Flick-ring + seek-scrub (internal; wired to the controllers in main).
+    void showFlickRequested(const QString &menuId);
+    void flickVectorChanged(int dx, int dy);
+    void flickCommitRequested();
+    void scrubRequested(int dx);
+    void scrubCommitRequested();
 
 private:
     CommitHandler m_commitHandler;

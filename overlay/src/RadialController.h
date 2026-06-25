@@ -27,6 +27,9 @@ class RadialController : public QObject
     Q_PROPERTY(QString centerIcon READ centerIcon NOTIFY menuChanged)
     Q_PROPERTY(int highlightedIndex READ highlightedIndex NOTIFY highlightChanged)
     Q_PROPERTY(bool centerHighlighted READ centerHighlighted NOTIFY highlightChanged)
+    // True while the ring is being steered by a thumb-slide (flick) rather than
+    // the mouse pointer; QML uses it to show a "slide to pick" affordance.
+    Q_PROPERTY(bool flickMode READ flickMode NOTIFY flickModeChanged)
 
 public:
     explicit RadialController(DaemonHaptics *haptics, QObject *parent = nullptr);
@@ -39,6 +42,7 @@ public:
     QString centerIcon() const { return m_center.iconName; }
     int highlightedIndex() const { return m_highlightedIndex; }
     bool centerHighlighted() const { return m_highlightedIndex < 0 && m_pointerEngaged; }
+    bool flickMode() const { return m_flickMode; }
 
 public slots:
     // deg measured clockwise from 12 o'clock (0..360). Inside the dead-zone
@@ -66,9 +70,18 @@ public slots:
     // Dismiss without acting (Escape / outside click).
     void cancel();
 
+    // Flick (thumb-slide) steering, driven by the daemon over D-Bus:
+    //   beginFlick()            enter flick mode (no mouse pick; highlight by dir)
+    //   setFlickVector(dx, dy)  highlight the segment at that slide direction
+    //   commitFlick()           activate the highlighted segment, else cancel
+    void beginFlick();
+    void setFlickVector(int dx, int dy);
+    void commitFlick();
+
 signals:
     void menuChanged();
     void highlightChanged();
+    void flickModeChanged();
     // Emitted on commit with the chosen item id; main wires this to the D-Bus
     // Overlay.ActionChosen signal and to window dismissal.
     void actionChosen(const QString &actionId);
@@ -94,6 +107,7 @@ private:
     QVariantList m_segments;   // QML-friendly mirror of m_items
     int m_highlightedIndex = -1;
     bool m_pointerEngaged = false;
+    bool m_flickMode = false;       // steered by thumb-slide, not the pointer
     QString m_currentMenuId;        // id of the menu currently shown
     QStringList m_menuStack;        // ancestor menu ids (empty at the root)
 };

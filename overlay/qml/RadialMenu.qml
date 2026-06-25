@@ -105,6 +105,20 @@ Rectangle {
         }
     }
 
+    // Flick-mode hint: shown only when the ring is steered by a thumb-slide.
+    Text {
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 56
+        visible: Radial.flickMode
+        opacity: root.openProgress * 0.9
+        text: "slide to aim · release to pick"
+        color: "white"
+        font.pixelSize: 13
+        style: Text.Outline
+        styleColor: Qt.rgba(0, 0, 0, 0.65)
+    }
+
     // --- pointer tracking -------------------------------------------------
     MouseArea {
         id: tracker

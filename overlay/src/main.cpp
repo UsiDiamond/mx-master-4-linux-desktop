@@ -230,6 +230,24 @@ int main(int argc, char *argv[])
                              service->notifyDismissed();
                          });
 
+        // Flick (thumb-slide) ring: open the ring in flick mode, then let the
+        // daemon steer the highlight by direction and commit it on release.
+        QObject::connect(service, &OverlayService::showFlickRequested,
+                         &app, [&](const QString &menuId) {
+                             showView(menuId.isEmpty() ? cliMenuId : menuId);
+                             controller->beginFlick();
+                         });
+        QObject::connect(service, &OverlayService::flickVectorChanged,
+                         controller, &RadialController::setFlickVector);
+        QObject::connect(service, &OverlayService::flickCommitRequested,
+                         controller, &RadialController::commitFlick);
+        // Seek-scrub on the media panel (the hold target): a horizontal slide
+        // previews a seek; release commits it.
+        QObject::connect(service, &OverlayService::scrubRequested,
+                         mpris, &MprisController::scrubBy);
+        QObject::connect(service, &OverlayService::scrubCommitRequested,
+                         mpris, &MprisController::commitScrub);
+
         // Programmatic Commit/Activate: ensure the menu is loaded (show it if
         // hidden, so the controller holds the right segments), then drive the
         // SAME commit path a user release would. The commit emits dismissed,

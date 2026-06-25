@@ -11,6 +11,14 @@ Q_LOGGING_CATEGORY(lcRadial, "mx4.radial")
 
 namespace mx4 {
 
+namespace {
+// Below this net-slide magnitude (raw sensor units) a flick has no clear
+// direction yet, so the center hub stays the target — sliding back toward the
+// origin before releasing therefore cancels the pick. The daemon only begins a
+// flick well past this, so in practice a segment is highlighted almost at once.
+constexpr qreal kFlickMinMag = 120.0;
+} // namespace
+
 RadialController::RadialController(DaemonHaptics *haptics, QObject *parent)
     : QObject(parent)
     , m_haptics(haptics)
@@ -25,6 +33,12 @@ void RadialController::setMenu(const MenuConfig &config)
     // above the menu we were asked to show.
     m_menuStack.clear();
     m_currentMenuId = config.menuId();
+    if (m_flickMode) {
+        // A fresh mouse-driven show clears any stale flick state (beginFlick()
+        // re-arms it for a flick show, which runs right after this).
+        m_flickMode = false;
+        emit flickModeChanged();
+    }
     applyMenu(config, /*asSubmenu=*/false);
 }
 
@@ -241,6 +255,63 @@ void RadialController::cancel()
     }
     qCDebug(lcRadial) << "cancelled";
     emit dismissRequested();
+}
+
+// -- flick (thumb-slide) steering ---------------------------------------
+void RadialController::beginFlick()
+{
+    if (!m_flickMode) {
+        m_flickMode = true;
+        emit flickModeChanged();
+    }
+    // Engage the center as the "no direction yet" target until the first
+    // vector lands; haptic ticks then fire as the highlight crosses segments.
+    m_pointerEngaged = true;
+    setHighlightedIndex(-1);
+    emit highlightChanged();
+    qCInfo(lcRadial) << "flick mode armed";
+}
+
+void RadialController::setFlickVector(int dx, int dy)
+{
+    m_pointerEngaged = true;
+    const int n = m_items.size();
+    if (n == 0) {
+        setHighlightedIndex(-1);
+        emit highlightChanged();
+        return;
+    }
+    // Too little net movement -> no direction yet (center stays the target).
+    const qreal mag = std::hypot(static_cast<qreal>(dx), static_cast<qreal>(dy));
+    if (mag < kFlickMinMag) {
+        setHighlightedIndex(-1);
+        emit highlightChanged();
+        return;
+    }
+    // Same angle convention as the pointer path: degrees clockwise from 12
+    // o'clock. Sensor +x is rightward and +y is "down" (matching screen Y), so
+    // atan2(dx, -dy) lands an upward slide on the top segment.
+    qreal deg = qRadiansToDegrees(std::atan2(static_cast<qreal>(dx),
+                                             static_cast<qreal>(-dy)));
+    qreal a = std::fmod(deg, 360.0);
+    if (a < 0.0) {
+        a += 360.0;
+    }
+    const qreal step = 360.0 / n;
+    const int idx = static_cast<int>(std::lround(a / step)) % n;
+    setHighlightedIndex(idx);
+}
+
+void RadialController::commitFlick()
+{
+    if (m_highlightedIndex >= 0 && m_highlightedIndex < m_items.size()) {
+        qCInfo(lcRadial) << "flick commit -> segment" << m_highlightedIndex;
+        commitItem(m_items.at(m_highlightedIndex));
+    } else {
+        // Released without a clear direction: dismiss without acting.
+        qCInfo(lcRadial) << "flick released with no direction -> cancel";
+        cancel();
+    }
 }
 
 } // namespace mx4

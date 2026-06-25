@@ -23,6 +23,11 @@ constexpr auto kPropsIface = "org.freedesktop.DBus.Properties";
 // Player.PlaybackStatus / metadata reads time out fast so a wedged player can
 // never stall the overlay's UI thread.
 constexpr int kCallTimeoutMs = 400;
+
+// Thumb seek-scrub sensitivity: MPRIS microseconds of seek per raw sensor unit
+// of net horizontal slide. ~25 ms/unit makes a comfortable slide cover a useful
+// span (a few seconds to a couple of minutes) without being twitchy. Tunable.
+constexpr qlonglong kScrubUsPerUnit = 25000;
 } // namespace
 
 MprisController::MprisController(QObject *parent)
@@ -152,12 +157,15 @@ void MprisController::readAll()
 
 void MprisController::refresh()
 {
+    // A fresh show starts un-scrubbed so a stale preview never lingers.
+    m_scrubbing = false;
     pickPlayer();
     readAll();
 }
 
 void MprisController::suspend()
 {
+    m_scrubbing = false;
     m_pollTimer->stop();
 }
 
@@ -165,6 +173,11 @@ void MprisController::pollPosition()
 {
     if (m_service.isEmpty()) {
         m_pollTimer->stop();
+        return;
+    }
+    // While scrubbing, the previewed position owns the bar — do not let the poll
+    // yank it back to the live playback position under the user's thumb.
+    if (m_scrubbing) {
         return;
     }
     m_position = playerProp(QStringLiteral("Position")).toLongLong();
@@ -237,6 +250,36 @@ void MprisController::seekTo(qlonglong positionUs)
                      QVariant::fromValue<qlonglong>(positionUs));
     m_position = positionUs; // optimistic; corrected by the next poll/refresh
     emit positionChanged();
+}
+
+void MprisController::scrubBy(int dx)
+{
+    if (m_service.isEmpty() || !m_canSeek || m_length <= 0) {
+        return;
+    }
+    if (!m_scrubbing) {
+        // First slide of this scrub: anchor at the current playback position.
+        m_scrubbing = true;
+        m_scrubStart = m_position;
+    }
+    qlonglong preview = m_scrubStart + static_cast<qlonglong>(dx) * kScrubUsPerUnit;
+    if (preview < 0) {
+        preview = 0;
+    }
+    if (preview > m_length) {
+        preview = m_length;
+    }
+    m_scrubPosition = preview;
+    emit positionChanged();
+}
+
+void MprisController::commitScrub()
+{
+    if (!m_scrubbing) {
+        return;
+    }
+    m_scrubbing = false;
+    seekTo(m_scrubPosition);
 }
 
 void MprisController::dismiss()

@@ -36,6 +36,10 @@ class MprisController : public QObject
     // Times are MPRIS microseconds.
     Q_PROPERTY(qlonglong position READ position NOTIFY positionChanged)
     Q_PROPERTY(qlonglong length READ length NOTIFY changed)
+    // Thumb seek-scrub preview: while scrubbing, the QML draws the bar at
+    // scrubPosition instead of the live position (committed on release).
+    Q_PROPERTY(bool scrubbing READ scrubbing NOTIFY positionChanged)
+    Q_PROPERTY(qlonglong scrubPosition READ scrubPosition NOTIFY positionChanged)
 
 public:
     explicit MprisController(QObject *parent = nullptr);
@@ -51,6 +55,8 @@ public:
     bool canSeek() const { return m_canSeek; }
     qlonglong position() const { return m_position; }
     qlonglong length() const { return m_length; }
+    bool scrubbing() const { return m_scrubbing; }
+    qlonglong scrubPosition() const { return m_scrubPosition; }
 
 public slots:
     // Re-scan for the active player and refresh everything (call on panel show).
@@ -62,6 +68,12 @@ public slots:
     void previous();
     // Seek to an absolute position (microseconds) via Player.SetPosition.
     void seekTo(qlonglong positionUs);
+    // Thumb seek-scrub: preview a seek by a net horizontal slide (raw sensor
+    // units, relative to the position when scrubbing began). commitScrub()
+    // applies the previewed position via SetPosition; both are no-ops if the
+    // player cannot seek.
+    void scrubBy(int dx);
+    void commitScrub();
     // Ask the host to close the panel (Escape / click-outside / close button).
     void dismiss();
 
@@ -92,6 +104,10 @@ private:
     bool m_canSeek = false;
     qlonglong m_position = 0;
     qlonglong m_length = 0;
+    // Seek-scrub preview state (see scrubBy/commitScrub).
+    bool m_scrubbing = false;
+    qlonglong m_scrubStart = 0;    // position captured when scrubbing began
+    qlonglong m_scrubPosition = 0; // current previewed position
     QTimer *m_pollTimer;
 };
 

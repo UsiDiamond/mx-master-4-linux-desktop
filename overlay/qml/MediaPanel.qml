@@ -180,20 +180,28 @@ Rectangle {
                 height: 34
                 visible: Media.available
 
-                // Local drag preview fraction (>=0 while dragging), else -1.
+                // Local drag preview fraction (>=0 while mouse-dragging), else -1.
+                // A thumb seek-scrub (Media.scrubbing) takes precedence and
+                // draws the bar at the previewed position.
                 property real dragFrac: -1
-                property real frac: dragFrac >= 0
-                    ? dragFrac
-                    : (Media.length > 0 ? Media.position / Media.length : 0)
+                property real frac: Media.scrubbing
+                    ? (Media.length > 0 ? Media.scrubPosition / Media.length : 0)
+                    : (dragFrac >= 0
+                        ? dragFrac
+                        : (Media.length > 0 ? Media.position / Media.length : 0))
 
                 Text {
                     id: posLabel
                     anchors.left: parent.left
                     anchors.verticalCenter: track.verticalCenter
-                    text: root.fmt(seek.dragFrac >= 0 ? seek.dragFrac * Media.length
-                                                      : Media.position)
-                    color: Qt.rgba(1, 1, 1, 0.75)
+                    text: root.fmt(Media.scrubbing
+                                   ? Media.scrubPosition
+                                   : (seek.dragFrac >= 0 ? seek.dragFrac * Media.length
+                                                         : Media.position))
+                    color: Media.scrubbing ? Qt.rgba(0.40, 0.70, 1.0, 0.95)
+                                           : Qt.rgba(1, 1, 1, 0.75)
                     font.pixelSize: 12
+                    font.bold: Media.scrubbing
                 }
                 Text {
                     id: lenLabel

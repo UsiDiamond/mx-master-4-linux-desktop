@@ -48,6 +48,37 @@ void OverlayService::ShowMedia()
     emit showMediaRequested();
 }
 
+void OverlayService::ShowFlickRing(const QString &menuId)
+{
+    qCInfo(lcService) << "D-Bus ShowFlickRing(" << menuId << ")";
+    emit showFlickRequested(menuId);
+}
+
+void OverlayService::SetFlickVector(int dx, int dy)
+{
+    // High-rate; debug only so a slide does not flood the log.
+    qCDebug(lcService) << "D-Bus SetFlickVector(" << dx << dy << ")";
+    emit flickVectorChanged(dx, dy);
+}
+
+void OverlayService::CommitFlick()
+{
+    qCInfo(lcService) << "D-Bus CommitFlick()";
+    emit flickCommitRequested();
+}
+
+void OverlayService::ScrubSeek(int dx)
+{
+    qCDebug(lcService) << "D-Bus ScrubSeek(" << dx << ")";
+    emit scrubRequested(dx);
+}
+
+void OverlayService::CommitSeek()
+{
+    qCInfo(lcService) << "D-Bus CommitSeek()";
+    emit scrubCommitRequested();
+}
+
 bool OverlayService::Commit(const QString &actionId)
 {
     qCInfo(lcService) << "D-Bus Commit(" << actionId << ")";
