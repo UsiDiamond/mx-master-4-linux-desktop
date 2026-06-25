@@ -134,6 +134,7 @@ src_install() {
 		exec "${EPREFIX}/usr/bin/${EPYTHON}" -m mx4d "\$@"
 	EOF
 	dobin "${T}/mx4d"
+	dobin "${S}/packaging/bin/mx4-show"
 
 	# --- udev rule (uaccess hidraw ACL; the one privileged bit) ------------
 	udev_dorules "${S}/packaging/udev/70-mx-master-4.rules"

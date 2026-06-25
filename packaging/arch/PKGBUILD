@@ -115,6 +115,7 @@ export PYTHONPATH="${_libdir}\${PYTHONPATH:+:\$PYTHONPATH}"
 exec /usr/bin/python3 -m mx4d "\$@"
 EOF
     chmod 755 "${pkgdir}/usr/bin/mx4d"
+    install -Dm755 packaging/bin/mx4-show "${pkgdir}/usr/bin/mx4-show"
 
     # --- 4. udev rule (uaccess, Logitech VID 046d) -> /usr/lib/udev/rules.d ---
     install -Dm644 packaging/udev/70-mx-master-4.rules \

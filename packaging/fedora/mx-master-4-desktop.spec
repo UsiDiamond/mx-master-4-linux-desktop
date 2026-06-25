@@ -95,6 +95,7 @@ export PYTHONPATH="%{mx4libdir}\${PYTHONPATH:+:\$PYTHONPATH}"
 exec %{__python3} -m mx4d "\$@"
 EOF
 chmod 0755 %{buildroot}%{_bindir}/mx4d
+install -Dpm0755 packaging/bin/mx4-show %{buildroot}%{_bindir}/mx4-show
 
 # --- udev rule (the one privileged bit; vendor-distributed path) ------------
 install -Dpm0644 packaging/udev/70-mx-master-4.rules \
@@ -134,6 +135,7 @@ install -Dpm0755 packaging/solaar/setup-solaar.sh \
 %{_bindir}/mx4d
 %{_bindir}/mx4-radial
 %{_bindir}/mx4-config
+%{_bindir}/mx4-show
 %{_datadir}/applications/mx4-config.desktop
 %dir %{mx4libdir}
 %{mx4libdir}/mx4d/

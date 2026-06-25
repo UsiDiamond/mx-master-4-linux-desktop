@@ -55,6 +55,7 @@ override_dh_auto_install:
 	  'exec $(PYTHON) -m mx4d "$$@"' \
 	  > $(DESTDIR)/usr/bin/mx4d
 	chmod 0755 $(DESTDIR)/usr/bin/mx4d
+	install -Dm755 packaging/bin/mx4-show $(DESTDIR)/usr/bin/mx4-show
 	# --- udev rule (uaccess for Logitech VID 046d) ------------------------
 	install -Dm644 packaging/udev/70-mx-master-4.rules \
 	  $(DESTDIR)/lib/udev/rules.d/70-mx-master-4.rules
