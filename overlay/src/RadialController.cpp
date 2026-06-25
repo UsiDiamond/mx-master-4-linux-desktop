@@ -130,13 +130,52 @@ void RadialController::commit()
         (m_highlightedIndex >= 0 && m_highlightedIndex < m_items.size())
             ? m_items.at(m_highlightedIndex)
             : m_center; // press-release with no movement -> center action
+    commitItem(chosen);
+}
 
+void RadialController::commitItem(const MenuItem &item)
+{
+    // Shared tail of every commit (user release or programmatic Commit/Activate):
+    // confirm tick -> argv-safe launch -> ActionChosen -> dismiss.
     if (m_haptics) {
         m_haptics->confirm();
     }
-    launch(chosen);
-    emit actionChosen(chosen.id);
+    launch(item);
+    emit actionChosen(item.id);
     emit dismissRequested();
+}
+
+bool RadialController::commitByIndex(int index)
+{
+    if (index < 0) {
+        // -1 (or any negative) means the center hub action.
+        commitItem(m_center);
+        return true;
+    }
+    if (index >= m_items.size()) {
+        qCWarning(lcRadial) << "commitByIndex out of range" << index
+                            << "of" << m_items.size();
+        return false;
+    }
+    commitItem(m_items.at(index));
+    return true;
+}
+
+bool RadialController::commitById(const QString &actionId)
+{
+    if (actionId.isEmpty() || actionId == m_center.id
+        || actionId == QLatin1String("center")) {
+        commitItem(m_center);
+        return true;
+    }
+    for (const MenuItem &item : m_items) {
+        if (item.id == actionId) {
+            commitItem(item);
+            return true;
+        }
+    }
+    qCWarning(lcRadial) << "commitById: no segment with id" << actionId;
+    return false;
 }
 
 void RadialController::cancel()

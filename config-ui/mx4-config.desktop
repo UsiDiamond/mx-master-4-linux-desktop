@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=MX Master 4 Settings
+GenericName=Mouse Haptics & Actions Ring
+Comment=Configure MX Master 4 native haptics and the Actions Ring radial menu
+Exec=mx4-config
+Icon=input-mouse
+Terminal=false
+Categories=Settings;HardwareSettings;Qt;
+Keywords=mouse;logitech;mx;haptics;actions ring;radial;

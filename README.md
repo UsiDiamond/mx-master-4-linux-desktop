@@ -64,8 +64,8 @@ they co-run, and each gracefully no-ops if the other is absent.
 
 | Process | Bus name | Object | Interface members |
 |---|---|---|---|
-| Daemon | `dev.usidiamond.mx4` | `/dev/usidiamond/mx4` | `PlayHaptic(s)->b`, `SetLevel(i)->b`, **`ShowMenu(s)->b`**; signals `TriggerPressed()`, `TriggerReleased()` |
-| Overlay | `dev.usidiamond.mx4.Overlay` | `/dev/usidiamond/mx4/Overlay` | `Show(s menuId)`, `Hide()`; signal `ActionChosen(s)` |
+| Daemon | `dev.usidiamond.mx4` | `/dev/usidiamond/mx4` | `PlayHaptic(s)->b`, `SetLevel(i)->b`, **`ShowMenu(s)->b`**, `GetCapabilities()->u`, `FocusChanged(s)->b`; signals `TriggerPressed()`, `TriggerReleased()`, `DeviceLost()` |
+| Overlay | `dev.usidiamond.mx4.Overlay` | `/dev/usidiamond/mx4/Overlay` | `Show(s menuId)`, `Hide()`, `Commit(s actionId)->b`, `Activate(i index)->b`; signal `ActionChosen(s)` |
 
 On an Actions-Ring press (or a `ShowMenu` call), the daemon ensures the overlay is
 running — **lazily launching** it (config `[overlay] command`) if its bus name is
@@ -168,6 +168,38 @@ The radial **center action defaults to the auto-detected Task Manager**:
 `plasma-systemmonitor` → `qps` / `lxtask` (LXQt) → `gnome-system-monitor` →
 `ksysguard` → `xterm -e htop`, first present on `PATH`.
 
+### Settings GUI
+
+A portable Qt6/QML settings window (works on Plasma 6 **and** LXQt — no KF6
+dependency) edits the same INI:
+
+```bash
+mx4-config            # or launch "MX Master 4 Settings" from the application menu
+```
+
+It edits every config surface — ambient master/quiet-hours/debounce, the three
+sources (enable/waveform/intensity), the global haptic level, the trigger
+(divert + waveform), the radial center action and segment list, and the overlay
+command. It writes a **configparser-compatible** INI that both the daemon and the
+overlay read, and **preserves unknown keys**. Per-waveform **Test** buttons play
+the waveform live via `Daemon.PlayHaptic` (a graceful no-op, with a hint, when
+the daemon is not running); when the daemon is running the GUI reads the firmware
+**capability mask** (`Daemon.GetCapabilities`) and marks unsupported waveforms
+`(not on this device)`.
+
+### Native-Wayland focus (KWin script, opt-in)
+
+`install.sh` also installs — but **never enables** — a small KWin script
+(`mx4-focus-bridge`) that forwards active-window changes to the daemon
+(`Daemon.FocusChanged(s)`), so focus haptics work for pure-Wayland clients that
+do not surface via Xwayland `_NET_ACTIVE_WINDOW`. Enable it explicitly:
+
+```bash
+kwriteconfig6 --file kwinrc --group Plugins --key mx4-focus-bridgeEnabled true
+qdbus6 org.kde.KWin /KWin reconfigure
+# (or System Settings > Window Management > KWin Scripts)
+```
+
 ## Proven (on real hardware, 2026-06-24)
 
 Integrated end-to-end on a live KDE Plasma 6 Wayland session, with a real MX Master 4
@@ -211,8 +243,10 @@ python3 tools/haptic_test.py COMPLETED  # play one named waveform
   remaining hardware verification; `ShowMenu` exercises the full overlay path without
   it in the meantime.
 - **Native-Wayland focus changes** are watched via X11 `_NET_ACTIVE_WINDOW` (covers
-  Xwayland); a pure-Wayland client may not surface there — a KWin-script bridge is the
-  planned complement.
+  Xwayland); a pure-Wayland client may not surface there. The optional
+  `mx4-focus-bridge` KWin script (installed but **not** enabled by default — see
+  *Native-Wayland focus* above) closes that gap by forwarding active-window changes
+  to the daemon's `FocusChanged(s)`.
 
 ## Repository layout
 

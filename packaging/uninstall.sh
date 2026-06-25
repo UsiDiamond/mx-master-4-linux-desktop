@@ -42,13 +42,33 @@ fi
 
 # --- 2. remove installed files ----------------------------------------------
 step "Removing installed files"
+DESKTOP_FILE="${HOME}/.local/share/applications/mx4-config.desktop"
 rm -f  "${BIN_DIR}/mx4-radial"          && log "removed ${BIN_DIR}/mx4-radial"
+rm -f  "${BIN_DIR}/mx4-config"          && log "removed ${BIN_DIR}/mx4-config"
 rm -f  "${BIN_DIR}/mx4d"                && log "removed ${BIN_DIR}/mx4d"
+rm -f  "${DESKTOP_FILE}"                && log "removed ${DESKTOP_FILE}"
 rm -rf "${LIB_DIR}"                     && log "removed ${LIB_DIR}"
 rm -f  "${UNIT_DIR}/mx4desktop.service" && log "removed ${UNIT_DIR}/mx4desktop.service"
 rm -f  "${UNIT_DIR}/mx4-overlay.service" && log "removed ${UNIT_DIR}/mx4-overlay.service"
 if command -v systemctl >/dev/null 2>&1; then
     systemctl --user daemon-reload 2>/dev/null || true
+fi
+
+# --- 2b. KWin focus-bridge script -------------------------------------------
+# install.sh installs (but never enables) the mx4-focus-bridge KWin script.
+# Remove it here best-effort. We never touched kwinrc (install never enabled
+# it), so there is nothing to un-set there.
+step "Removing KWin focus-bridge script"
+if command -v kpackagetool6 >/dev/null 2>&1; then
+    if kpackagetool6 --type KWin/Script --list 2>/dev/null | grep -q '^mx4-focus-bridge$'; then
+        kpackagetool6 --type KWin/Script --remove mx4-focus-bridge 2>/dev/null \
+            && log "removed KWin script 'mx4-focus-bridge'" \
+            || log "could not remove KWin script 'mx4-focus-bridge' (non-fatal)"
+    else
+        log "KWin script 'mx4-focus-bridge' not installed"
+    fi
+else
+    log "kpackagetool6 not found; skipping KWin script removal"
 fi
 
 # --- 3. udev rule (needs sudo) ----------------------------------------------

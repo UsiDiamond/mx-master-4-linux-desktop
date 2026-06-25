@@ -1,0 +1,7 @@
+<RCC>
+    <qresource prefix="/qml">
+        <file>Main.qml</file>
+        <file>SectionFrame.qml</file>
+        <file>WaveformPicker.qml</file>
+    </qresource>
+</RCC>

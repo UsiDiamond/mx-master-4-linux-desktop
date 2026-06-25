@@ -172,6 +172,26 @@ int main(int argc, char *argv[])
                          });
         QObject::connect(service, &OverlayService::hideRequested,
                          &app, [&]() { hideView(); });
+
+        // Programmatic Commit/Activate: ensure the menu is loaded (show it if
+        // hidden, so the controller holds the right segments), then drive the
+        // SAME commit path a user release would. The commit emits dismissed,
+        // which tears the view down — full show->commit->launch, no tap needed.
+        // These are plain handlers (not signals), so QtDBus never tries to relay
+        // them and there is no spurious "pointers not supported" warning.
+        service->setCommitHandler([&](const QString &actionId) -> bool {
+            if (!view) {
+                showView(cliMenuId);
+            }
+            return controller->commitById(actionId);
+        });
+        service->setActivateHandler([&](int index) -> bool {
+            if (!view) {
+                showView(cliMenuId);
+            }
+            return controller->commitByIndex(index);
+        });
+
         // Bridge the controller's choice out over the bus.
         QObject::connect(controller, &RadialController::actionChosen,
                          service, &OverlayService::ActionChosen);

@@ -42,4 +42,18 @@ void OverlayService::Hide()
     emit hideRequested();
 }
 
+bool OverlayService::Commit(const QString &actionId)
+{
+    qCInfo(lcService) << "D-Bus Commit(" << actionId << ")";
+    // Synchronous handler call: the app ensures a view exists then drives the
+    // controller's commit path, returning success for the D-Bus reply.
+    return m_commitHandler ? m_commitHandler(actionId) : false;
+}
+
+bool OverlayService::Activate(int index)
+{
+    qCInfo(lcService) << "D-Bus Activate(" << index << ")";
+    return m_activateHandler ? m_activateHandler(index) : false;
+}
+
 } // namespace mx4

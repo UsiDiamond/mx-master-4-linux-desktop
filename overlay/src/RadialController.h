@@ -53,6 +53,16 @@ public slots:
     // highlighted (a press-release with no movement) the CENTER action runs.
     void commit();
 
+    // Programmatic commit (D-Bus Overlay.Commit / .Activate). Drives the SAME
+    // commit()/launch path as a user release, so the full show->commit->launch
+    // chain is automatable on Wayland without a physical tap.
+    //   commitByIndex(-1)         -> the center action
+    //   commitByIndex(0..n-1)     -> that segment
+    //   commitById("<id>")        -> the segment (or center) with that id
+    // Returns whether a matching item was found and committed.
+    bool commitByIndex(int index);
+    bool commitById(const QString &actionId);
+
     // Dismiss without acting (Escape / outside click).
     void cancel();
 
@@ -68,6 +78,8 @@ signals:
 private:
     void setHighlightedIndex(int idx);
     void launch(const MenuItem &item);
+    // Shared commit tail: confirm tick, launch, ActionChosen, dismiss.
+    void commitItem(const MenuItem &item);
 
     DaemonHaptics *m_haptics; // not owned
     MenuItem m_center;

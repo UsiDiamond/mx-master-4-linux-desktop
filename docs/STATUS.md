@@ -3,8 +3,9 @@
 Project: bring the MX Master 4 **Actions Ring** + **native haptics** to Linux on
 **KDE Plasma 6** and **LXQt**. Private repo under the UsiDiamond GitHub account.
 
-Last updated: **2026-06-24** (Phases 1, 2 & 3 complete; Phase 3 integration +
-packaging proven end-to-end on real hardware. Phase 4 = config GUI/KCM next).
+Last updated: **2026-06-24** (Phases 1–4 complete; Phase 3 integration +
+packaging and Phase 4 config GUI + focus bridge proven on real hardware /
+round-tripped against both parsers).
 
 ## Where things stand
 
@@ -15,7 +16,7 @@ packaging proven end-to-end on real hardware. Phase 4 = config GUI/KCM next).
 | **Phase 1 — daemon** (`daemon/`, Python) | **DONE + committed** (`9a72aa1`). Standalone raw-HID++, no Solaar dep. Verified on hardware: selftest buzzes; `notify-send`→haptic; D-Bus `PlayHaptic`/`SetLevel`; trigger divert+restore clean; 36 unit tests pass |
 | **Phase 2 — overlay** (`overlay/`, C++/Qt6) | **DONE + committed** (`640422d`). Builds clean vs Qt6 6.11 + LayerShellQt; `--demo` renders the ring on the live Plasma 6 Wayland session (screenshot-verified) + X11 cursor path |
 | **Phase 3 — integration + packaging** | **DONE** — daemon→overlay wiring (`ShowMenu(s)->b` + trigger-press path, lazy overlay launch, bounded async name-wait, all off the GLib mainloop); `[overlay] command` + `[radial] default_menu` config keys; `packaging/` (install.sh/uninstall.sh idempotent, `mx4-overlay.service` + `mx4desktop.service` user units, `70-mx-master-4.rules` uaccess udev). Proven live on Plasma 6 Wayland: ShowMenu→lazy-launch→ring appears (screenshot)→hover PlayHaptic buzzes→commit launches plasma-systemmonitor→Hide resident→SIGTERM restores panel divert, no leftover procs. 47 daemon unit tests green |
-| Config UI / KCM | Not started (Phase 4) |
+| **Phase 4 — config GUI + polish** | **DONE** — portable Qt6/QML settings window (`config-ui/`, `mx4-config`, no KF6; Plasma 6 + LXQt) editing the shared INI (configparser-compatible writer, preserves unknown keys, round-trip proven against BOTH daemon `config.py` and overlay `MenuConfig`); live waveform preview + firmware capability-mask marking via `Daemon.GetCapabilities()->u`. Polish: `Overlay.Commit(s)->b` / `Activate(i)->b` (scriptable Wayland e2e), daemon `FocusChanged(s)->b` + `mx4-focus-bridge` KWin script (installed NOT enabled) for native-Wayland focus. `install.sh`/`uninstall.sh` updated |
 
 ## Firmware capability finding (important, real)
 
@@ -30,8 +31,8 @@ that fires haptics MUST check the mask, not assume the full 16-waveform table.
 
 | Process | Bus name | Object path | Interface / members |
 |---|---|---|---|
-| Daemon | `dev.usidiamond.mx4` | `/dev/usidiamond/mx4` | `dev.usidiamond.mx4.Daemon`: `PlayHaptic(s)->b`, `SetLevel(i)->b`, `ShowMenu(s)->b`; signals `TriggerPressed()`, `TriggerReleased()`, `DeviceLost()` |
-| Overlay | `dev.usidiamond.mx4.Overlay` | `/dev/usidiamond/mx4/Overlay` | `dev.usidiamond.mx4.Overlay`: `Show(s menuId)`, `Hide()`; signal `ActionChosen(s)` |
+| Daemon | `dev.usidiamond.mx4` | `/dev/usidiamond/mx4` | `dev.usidiamond.mx4.Daemon`: `PlayHaptic(s)->b`, `SetLevel(i)->b`, `ShowMenu(s)->b`, `GetCapabilities()->u`, `FocusChanged(s)->b`; signals `TriggerPressed()`, `TriggerReleased()`, `DeviceLost()` |
+| Overlay | `dev.usidiamond.mx4.Overlay` | `/dev/usidiamond/mx4/Overlay` | `dev.usidiamond.mx4.Overlay`: `Show(s menuId)`, `Hide()`, `Commit(s)->b`, `Activate(i)->b`; signal `ActionChosen(s)` |
 
 (Distinct bus names so daemon + overlay co-run.) Overlay calls `Daemon.PlayHaptic` on
 hover/commit (graceful no-op if daemon absent). In `--demo` the overlay does not register

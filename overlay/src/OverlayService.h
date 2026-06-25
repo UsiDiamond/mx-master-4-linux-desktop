@@ -4,6 +4,8 @@
 #include <QObject>
 #include <QString>
 
+#include <functional>
+
 namespace mx4 {
 
 /**
@@ -37,12 +39,34 @@ public slots: // exported as D-Bus methods
     Q_SCRIPTABLE void Show(const QString &menuId);
     Q_SCRIPTABLE void Hide();
 
+    // Programmatic commit of a segment as if the user selected it, driving the
+    // same commit()/launch path. Returns whether a matching item was committed.
+    // Commit("")/Commit("center") commits the center hub action. These make the
+    // full show->commit->launch chain automatable on Wayland with no physical
+    // tap (the overlay is shown first if it is not already visible).
+    Q_SCRIPTABLE bool Commit(const QString &actionId);
+    Q_SCRIPTABLE bool Activate(int index); // -1 = center, 0..n-1 = segment
+
+public:
+    // Handlers the app installs to service a programmatic Commit/Activate. They
+    // run synchronously inside the D-Bus call and return success, which becomes
+    // the method's reply. Plain callbacks (NOT signals) so QtDBus never tries to
+    // relay a pointer-bearing signal over the bus.
+    using CommitHandler = std::function<bool(const QString &actionId)>;
+    using ActivateHandler = std::function<bool(int index)>;
+    void setCommitHandler(CommitHandler handler) { m_commitHandler = std::move(handler); }
+    void setActivateHandler(ActivateHandler handler) { m_activateHandler = std::move(handler); }
+
 signals: // exported as D-Bus signals
     Q_SCRIPTABLE void ActionChosen(const QString &actionId);
 
     // Internal Qt signals (not over the bus) the app wires to the window.
     void showRequested(const QString &menuId);
     void hideRequested();
+
+private:
+    CommitHandler m_commitHandler;
+    ActivateHandler m_activateHandler;
 };
 
 } // namespace mx4

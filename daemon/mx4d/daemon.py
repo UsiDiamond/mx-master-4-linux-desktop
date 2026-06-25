@@ -30,6 +30,7 @@ from .device import MX4Device, find_mx_master_4
 from .haptics import HapticEngine
 from .overlay import OverlayController
 from .sources import (
+    KIND_FOCUS,
     KIND_NOTIFICATION,
     Event,
     Source,
@@ -471,6 +472,47 @@ def _make_dbus_service_class():
                 self._daemon._io_queue.put_nowait(("set_level", int(level)))
                 return True
             except Exception:  # noqa: BLE001
+                return False
+
+        @dbus.service.method(DBUS_INTERFACE, in_signature="", out_signature="u")
+        def GetCapabilities(self):  # noqa: N802 - D-Bus method name
+            """Return the firmware's supported-waveform capability bitmask.
+
+            Bit ``i`` set means waveform index ``i`` is supported (see
+            ``haptics.WAVEFORMS``). The config GUI reads this to mark which
+            waveforms the hardware actually plays; ``0`` means "unknown" (no
+            device / capabilities not yet read), which the GUI treats as
+            "show all, grey out none".
+            """
+            if self._daemon.haptics is None:
+                return 0
+            try:
+                return int(self._daemon.haptics.capabilities) & 0xFFFFFFFF
+            except Exception:  # noqa: BLE001
+                return 0
+
+        @dbus.service.method(DBUS_INTERFACE, in_signature="s", out_signature="b")
+        def FocusChanged(self, app_name):  # noqa: N802 - D-Bus method name
+            """Feed a native-Wayland focus change into the focus haptic mapping.
+
+            A KWin script (packaging/kwin/) calls this on
+            ``workspace.windowActivated`` so focus events surface even for pure
+            Wayland clients that never touch X11 ``_NET_ACTIVE_WINDOW``. It runs
+            the SAME per-source gating + haptic mapping as the X11 ``focus``
+            source (master/quiet/per-source enable + debounce + waveform), so
+            the two paths are interchangeable and the X11 baseline still works.
+
+            Returns whether the event was dispatched (it is then gated like any
+            ambient event; a debounced/disabled event still returns ``True``
+            because it was accepted, just not played).
+            """
+            try:
+                self._daemon.on_event(
+                    Event(KIND_FOCUS, {"app": str(app_name), "source": "kwin"})
+                )
+                return True
+            except Exception:  # noqa: BLE001 - never let a bad event kill the bus
+                logger.debug("FocusChanged dispatch failed", exc_info=True)
                 return False
 
         @dbus.service.method(DBUS_INTERFACE, in_signature="s", out_signature="b")

@@ -85,6 +85,8 @@ class Mx4Config:
     trigger_waveform: str
     # [radial]
     radial_center_action: str
+    radial_center_label: str
+    radial_center_icon: str
     radial_default_menu: str
     # [overlay]
     overlay_command: str
@@ -115,8 +117,11 @@ class Mx4Config:
         # so a user editing the shared INI affects both processes. The legacy
         # "center_action" key is still read on load for backward compatibility.
         _set(p, "radial", "center/command", self.radial_center_action)
-        _set(p, "radial", "center/label", "Task Manager")
-        _set(p, "radial", "center/icon", "utilities-system-monitor")
+        # Preserve the GUI-set center label/icon (the config GUI is the authority
+        # for these). Do NOT hardcode them, or a user's custom center label/icon
+        # is silently lost whenever the daemon (re)writes the file.
+        _set(p, "radial", "center/label", self.radial_center_label)
+        _set(p, "radial", "center/icon", self.radial_center_icon)
         _set(p, "radial", "default_menu", self.radial_default_menu)
         # [overlay]: how the daemon lazily launches the radial overlay process.
         _set(p, "overlay", "command", self.overlay_command)
@@ -149,7 +154,8 @@ def _default_parser() -> configparser.ConfigParser:
     p["source:%s" % KIND_NOTIFICATION] = {
         "enabled": "true",
         "waveform": "HAPPY_ALERT",
-        # critical-urgency notifications upgrade to ANGRY_ALERT in the daemon.
+        # critical-urgency notifications upgrade to SHARP_COLLISION in the daemon
+        # (see daemon.py CRITICAL_WAVEFORM).
         "intensity": "70",
     }
     p["source:%s" % KIND_FOCUS] = {
@@ -233,6 +239,11 @@ def _build(parser: configparser.ConfigParser) -> Mx4Config:
     if not center:
         center = detect_task_manager()
 
+    center_label = get("radial", "center/label", fallback="").strip() or "Task Manager"
+    center_icon = (
+        get("radial", "center/icon", fallback="").strip()
+        or "utilities-system-monitor"
+    )
     default_menu = get("radial", "default_menu", fallback="").strip() or "default"
     overlay_command = get("overlay", "command", fallback="").strip() or "mx4-radial"
 
@@ -244,6 +255,8 @@ def _build(parser: configparser.ConfigParser) -> Mx4Config:
         divert_panel=getbool("trigger", "divert_panel"),
         trigger_waveform=get("trigger", "waveform"),
         radial_center_action=center,
+        radial_center_label=center_label,
+        radial_center_icon=center_icon,
         radial_default_menu=default_menu,
         overlay_command=overlay_command,
         _parser=parser,

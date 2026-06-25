@@ -21,6 +21,9 @@ REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 OVERLAY_SRC="${REPO_DIR}/overlay"
 OVERLAY_BUILD="${OVERLAY_SRC}/build"
+CONFIG_SRC="${REPO_DIR}/config-ui"
+CONFIG_BUILD="${CONFIG_SRC}/build"
+KWIN_SRC="${REPO_DIR}/packaging/kwin"
 DAEMON_SRC="${REPO_DIR}/daemon/mx4d"
 
 BIN_DIR="${HOME}/.local/bin"
@@ -68,6 +71,24 @@ if [[ ! -x "${OVERLAY_BIN}" ]]; then
 fi
 install -Dm755 "${OVERLAY_BIN}" "${BIN_DIR}/mx4-radial"
 log "installed ${BIN_DIR}/mx4-radial"
+
+# --- 1b. build + install the config GUI -------------------------------------
+step "Building the config GUI (cmake)"
+cmake -S "${CONFIG_SRC}" -B "${CONFIG_BUILD}" "${GEN_ARGS[@]}"
+cmake --build "${CONFIG_BUILD}"
+
+CONFIG_BIN="${CONFIG_BUILD}/mx4-config"
+if [[ ! -x "${CONFIG_BIN}" ]]; then
+    echo "error: config GUI build did not produce ${CONFIG_BIN}" >&2
+    exit 1
+fi
+install -Dm755 "${CONFIG_BIN}" "${BIN_DIR}/mx4-config"
+log "installed ${BIN_DIR}/mx4-config"
+
+# Desktop launcher so the settings window shows in the application menu.
+DESKTOP_DST="${HOME}/.local/share/applications/mx4-config.desktop"
+install -Dm644 "${CONFIG_SRC}/mx4-config.desktop" "${DESKTOP_DST}"
+log "installed ${DESKTOP_DST}"
 
 # --- 2. install the daemon as a python package (NO venv, NO pip) -------------
 step "Installing the daemon package"
@@ -148,6 +169,29 @@ else
     log "udev rule installed + reloaded (re-plug the receiver if access is denied)"
 fi
 
+# --- 6. KWin focus-bridge script (installed, NOT enabled) -------------------
+step "KWin focus-bridge script"
+KWIN_ENABLE_HINT=""
+if command -v kpackagetool6 >/dev/null 2>&1; then
+    # Install (or upgrade) the package into the user's KWin scripts. We do NOT
+    # run `kwriteconfig6 ... --group Plugins ... mx4-focus-bridgeEnabled true`
+    # nor reconfigure KWin — the script stays installed-but-inert until the user
+    # opts in (System Settings > Window Management > KWin Scripts, or the
+    # printed command). EnabledByDefault=false in metadata.json reinforces this.
+    if kpackagetool6 --type KWin/Script --list 2>/dev/null | grep -q '^mx4-focus-bridge$'; then
+        kpackagetool6 --type KWin/Script --upgrade "${KWIN_SRC}" || \
+            log "kpackagetool6 upgrade failed (non-fatal)"
+        log "upgraded KWin script 'mx4-focus-bridge' (still NOT enabled)"
+    else
+        kpackagetool6 --type KWin/Script --install "${KWIN_SRC}" || \
+            log "kpackagetool6 install failed (non-fatal; Plasma may be absent)"
+        log "installed KWin script 'mx4-focus-bridge' (NOT enabled)"
+    fi
+    KWIN_ENABLE_HINT=$'\nTo ENABLE the native-Wayland focus bridge (opt-in):\n    kwriteconfig6 --file kwinrc --group Plugins --key mx4-focus-bridgeEnabled true\n    qdbus6 org.kde.KWin /KWin reconfigure\n    # (or System Settings > Window Management > KWin Scripts)'
+else
+    log "kpackagetool6 not found; skipping KWin focus-bridge (Plasma not installed?)"
+fi
+
 # --- done -------------------------------------------------------------------
 cat <<EOF
 
@@ -161,6 +205,10 @@ To start NOW (this session only, nothing auto-enabled):
 
 To ENABLE autostart on every login (opt-in — NOT done by this installer):
     systemctl --user enable --now mx4desktop.service mx4-overlay.service
+
+To EDIT settings (haptics, ambient sources, the radial menu):
+    mx4-config            # or launch "MX Master 4 Settings" from the menu
+${KWIN_ENABLE_HINT}
 
 Config:    ${CONFIG_FILE}
 Uninstall: ${SCRIPT_DIR}/uninstall.sh

@@ -131,6 +131,28 @@ def test_radial_center_command_preferred_over_legacy(tmp_path):
     assert c.radial_center_action == "new-monitor"
 
 
+def test_radial_center_label_icon_survive_daemon_save(tmp_path):
+    # The config GUI is the authority for the center label/icon. A custom value
+    # must survive a daemon (re)write of the file — the daemon must NOT clobber
+    # it with the hardcoded "Task Manager"/"utilities-system-monitor" defaults.
+    path = os.path.join(tmp_path, "config.ini")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(
+            "[radial]\n"
+            "center/command = kcalc --hex\n"
+            "center/label = Calculator\n"
+            "center/icon = accessories-calculator\n"
+        )
+    c = load_config(path, write_defaults=False)
+    assert c.radial_center_label == "Calculator"
+    assert c.radial_center_icon == "accessories-calculator"
+    c.save(path)
+    reloaded = load_config(path, write_defaults=False)
+    assert reloaded.radial_center_label == "Calculator"
+    assert reloaded.radial_center_icon == "accessories-calculator"
+    assert reloaded.radial_center_action == "kcalc --hex"
+
+
 def test_unknown_keys_preserved(tmp_path):
     path = os.path.join(tmp_path, "config.ini")
     load_config(path)
