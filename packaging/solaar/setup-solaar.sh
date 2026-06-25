@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 # Solaar-first setup for mx-master-4-desktop.
 #
-# Default: delegate the Actions Ring trigger to Solaar (divert the panel + tell the
+# Default: let Solaar own the Actions Ring divert (divert the Haptic panel + tell the
 # daemon to stop diverting it), so the two never fight over the device. The standalone
 # path is unaffected and remains the default until you run this.
 #
-#   setup-solaar.sh                 # enable Solaar-first (divert + config; print the rule)
-#   setup-solaar.sh --install-rule  # also append the Solaar rule (backs up rules.yaml)
+# With the daemon (mx4d) running you do NOT need a Solaar rule: once the Haptic panel is
+# diverted, the daemon hears the key directly and distinguishes a tap from a press-and-
+# hold (a Solaar rule cannot, and would fire the ring a second time). The rule path is
+# kept only as a legacy way to open the ring when the daemon is not running.
+#
+#   setup-solaar.sh                 # Solaar-first (divert Haptic + set config; no rule)
+#   setup-solaar.sh --install-rule  # LEGACY: also append the Solaar rule (no-daemon use)
 #   setup-solaar.sh --revert        # back to the self-sufficient standalone path
 #
 # Idempotent and non-destructive (backs up before touching rules.yaml).
@@ -20,7 +25,7 @@ REVERT=0; INSTALL_RULE=0
 for a in "$@"; do case "$a" in
   --revert) REVERT=1;;
   --install-rule) INSTALL_RULE=1;;
-  -h|--help) sed -n '2,12p' "$0"; exit 0;;
+  -h|--help) sed -n '2,17p' "$0"; exit 0;;
   *) echo "unknown arg: $a" >&2; exit 2;;
 esac; done
 
@@ -63,6 +68,11 @@ echo "--> telling the daemon NOT to divert the panel (Solaar owns it now)"
 set_divert_panel false
 
 if [ "$INSTALL_RULE" = 1 ]; then
+  echo
+  echo "  NOTE: a Solaar rule is NO LONGER NEEDED. With mx4d running, the daemon hears the"
+  echo "  diverted Haptic key directly and tells a tap from a hold (a rule cannot). If the"
+  echo "  daemon is also listening, this rule will open the ring a SECOND time on each tap."
+  echo "  Only keep it if you run WITHOUT mx4d."
   if [ -f "$SOLAAR_RULES" ] && grep -q "dev.usidiamond.mx4.Daemon.ShowMenu" "$SOLAAR_RULES"; then
     echo "--> Solaar rule already present, leaving rules.yaml untouched"
   else
@@ -74,13 +84,15 @@ if [ "$INSTALL_RULE" = 1 ]; then
   fi
 else
   echo
-  echo "Now add the trigger rule. Easiest: Solaar -> menu -> Rule Editor -> add a rule:"
-  echo "   condition  Key: [Haptic, pressed]"
-  echo "   action     Execute: dbus-send --session --dest=dev.usidiamond.mx4 \\"
-  echo "              /dev/usidiamond/mx4 dev.usidiamond.mx4.Daemon.ShowMenu string:default"
-  echo "Or re-run with --install-rule to append it to rules.yaml automatically."
+  echo "No Solaar rule needed: with the daemon (mx4d) running, it hears the diverted Haptic"
+  echo "key directly and gives you tap (quick press) vs. hold (>= hold_threshold s), each"
+  echo "opening a ring. Just confirm the Haptic divert above stuck (check Solaar's UI) and"
+  echo "tap the panel. (Legacy no-daemon path: re-run with --install-rule; it cannot tell a"
+  echo "tap from a hold.)"
 fi
 
 echo
-echo "Done. With the daemon running (mx4d), tapping the haptic panel should open the ring."
+echo "Done. With the daemon running (mx4d), a tap OR a hold of the haptic panel opens the ring."
+echo "If the divert does not survive a Solaar restart, set Haptic = Diverted ONCE in Solaar's"
+echo "UI (the CLI write can hit a Solaar marshalling bug that applies it but skips saving it)."
 echo "Revert anytime with:  $(basename "$0") --revert"

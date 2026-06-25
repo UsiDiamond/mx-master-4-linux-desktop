@@ -276,8 +276,10 @@ fits how you want to use the mouse:
    panel to open the ring *takes it over*, so it stops doing whatever it did before
    (e.g. a window/focus action). Enable only if you want the panel to *be* the ring:
    - Standalone: `[trigger] divert_panel = true` (the daemon captures the panel itself).
-   - Solaar-first: `divert_panel = auto` (default — defers to Solaar when it's running)
-     plus the Solaar rule from `packaging/solaar/` (see its README).
+   - Solaar-first: `divert_panel = auto` (default — when Solaar is running the daemon
+     does **not** divert; divert the *Haptic* control in Solaar once and the daemon
+     listens for it, giving you tap **and** hold). No Solaar rule needed — see
+     `packaging/solaar/README.md`.
 
 3. **Directly, for testing:** `mx4-show` (or the raw `dbus-send … ShowMenu`).
 

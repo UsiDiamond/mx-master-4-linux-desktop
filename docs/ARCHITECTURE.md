@@ -315,7 +315,7 @@ waveform = HAPPY_ALERT  ; critical urgency upgrades to SHARP_COLLISION
 intensity = 70
 
 [trigger]
-divert_panel = auto     ; auto (defer to Solaar if running) | true | false
+divert_panel = auto     ; auto (capture standalone / listen under Solaar) | true | false
 waveform = HAPPY_ALERT  ; played on a trigger press
 
 [radial]

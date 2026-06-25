@@ -3,22 +3,23 @@
 This addon is **Solaar-first with a self-sufficient fallback**:
 
 - **If you run Solaar** (the usual case — it already manages your MX Master 4), let
-  Solaar own the device and the Actions Ring trigger. Solaar diverts the haptic panel
-  and a Solaar **rule** fires the overlay. Our daemon then does **not** touch the panel
-  and only provides the overlay, the haptics, and the ambient-event → haptic mapping over
-  D-Bus. No device contention.
-
-  **This is now automatic.** `trigger.divert_panel` defaults to **`auto`**: on startup the
-  daemon detects a running Solaar background process and, if present, defers the trigger to
-  Solaar (never diverting the panel) — no manual config needed. You still need the Solaar
-  **rule** that turns the diverted Haptic key into `ShowMenu`; `setup-solaar.sh` installs it
-  (or add it in Solaar's Rule Editor). `auto` falls back to standalone capture the moment
-  Solaar is not running, so you always have a working trigger.
+  Solaar own the *divert* of the Actions Ring panel. Once the **Haptic** control is
+  diverted in Solaar, the firmware sends the panel's press/release over HID++, and the
+  kernel broadcasts those notifications to **every** reader of the receiver's hidraw
+  node — including our daemon. The daemon then times them itself and distinguishes a
+  **tap** from a **press-and-hold** (each opens a ring). It also still provides the
+  overlay, the haptics, and the ambient-event → haptic mapping. No device contention,
+  and **no Solaar rule is required** — see below.
 - **If you don't run Solaar**, the built-in daemon works entirely on its own (it diverts
   and captures the panel itself). Nothing here is required for that path — the standalone
   build never depends on Solaar.
 
 So the two paths are independent: Solaar-first is purely additive.
+
+> **Why no rule?** A Solaar *rule* fires once on the diverted key press and **cannot tell
+> a tap from a hold**. The daemon reads the same diverted-key notifications directly and
+> runs its own tap/hold timer, so it gives you both gestures. If you *also* install the
+> legacy rule while the daemon is listening, the ring will open **twice** per tap.
 
 > **Don't want to give up the panel's current behaviour?** You don't have to use the
 > panel as the trigger at all. Bind the `mx4-show` helper to a hotkey or spare button
@@ -28,19 +29,21 @@ So the two paths are independent: Solaar-first is purely additive.
 ## How the trigger works under Solaar
 
 ```
-  panel tap ──▶ Solaar (diverts CID 0x01A0 "Haptic") ──▶ Solaar rule
-                                                            │ Execute
-                                                            ▼
-        dbus-send … dev.usidiamond.mx4.Daemon.ShowMenu "default"
-                                                            │
-                                                            ▼
-                          mx4d daemon ──▶ Overlay.Show(default)  ──▶ ring
-                              └── plays haptics (PlayHaptic) on hover/commit
+  panel tap / hold
+        │  Solaar diverts CID 0x01A0 "Haptic"  →  firmware emits divertedButtonsEvent
+        ▼
+  kernel broadcasts the HID++ notification to every hidraw reader
+        │
+        ▼
+  mx4d daemon (passive listener)
+        │  times press→release: tap (quick) vs. hold (≥ hold_threshold s)
+        ▼
+  Overlay.Show(tap_menu | hold_menu)  →  ring   (+ PlayHaptic on hover/commit)
 ```
 
-The daemon still owns haptics and ambient events; only the *trigger* is delegated to
-Solaar. This is the supported, contention-free Solaar path (rules fire on diverted-key
-HID++ notifications).
+Solaar owns only the *divert*; everything after it — tap/hold timing, the overlay, the
+haptics — is the daemon. This is contention-free: diverted-key notifications are
+broadcast, not consumed, so Solaar and the daemon both see them.
 
 ## Setup
 
@@ -53,14 +56,19 @@ packaging/solaar/setup-solaar.sh
 It will:
 1. Divert the Actions Ring panel in Solaar: `solaar config '<device>' divert-keys Haptic Diverted`.
 2. Set `trigger.divert_panel = false` in `~/.config/mx4desktop/config.ini` so the daemon
-   leaves the panel to Solaar **unconditionally** (the explicit, forced Solaar-first path).
-3. Offer to add the rule below to `~/.config/solaar/rules.yaml` (with a backup first), or
-   tell you how to add it via Solaar's GUI rule editor.
+   leaves the divert to Solaar **unconditionally** (the explicit, forced Solaar-first
+   path). Note `divert_panel = auto` (the default) already listens under a running Solaar,
+   so this step only *pins* the behaviour.
 
-> Since `divert_panel` now defaults to **`auto`** (auto-defer to a running Solaar), step 2 is
-> no longer strictly required to avoid contention — but `setup-solaar.sh` is still the easy way
-> to **install the Solaar rule** and to *pin* the forced Solaar-first behaviour. The rule is
-> what actually fires the overlay on a tap, so run it (or add the rule by hand) at least once.
+That's it — with `mx4d` running, tap or hold the panel and the ring appears. **No Solaar
+rule is needed** (and `setup-solaar.sh` no longer adds one by default).
+
+> **Persistence / the Solaar CLI bug.** On some setups `solaar config … divert-keys`
+> applies the divert to the device but then hits a Solaar marshalling bug
+> (`Unable to marshal str as an array`) and exits before saving it — so the divert works
+> *now* but does **not** survive a Solaar restart or the mouse sleeping/re-pairing. If
+> that happens, set it once in the GUI instead — **Solaar → your MX Master 4 →
+> Key/Button Diversion → Haptic → Diverted** — which persists it properly.
 
 To **revert** to the self-sufficient standalone path:
 
@@ -68,34 +76,32 @@ To **revert** to the self-sufficient standalone path:
 packaging/solaar/setup-solaar.sh --revert   # un-diverts in Solaar, sets divert_panel = true
 ```
 
-(If you prefer the hands-off behaviour, set `divert_panel = auto` and just keep the Solaar
-rule installed: the daemon captures standalone when Solaar is down and defers when it is up.)
+## Legacy: the Solaar rule (no-daemon use only)
 
-## The Solaar rule
-
-Condition **Key = `Haptic`, pressed** → action **Execute** `dbus-send … ShowMenu`. The
-canonical YAML is in [`mx4-rules.yaml`](mx4-rules.yaml). The safest way to add it is
-through Solaar's **Rule Editor** (Solaar → ☰ → Rule Editor): add a rule with a *Key*
-condition (`Haptic`, `pressed`) and an *Execute* action running:
+You only need this if you want the ring to open **without** running `mx4d` (e.g. a Solaar
+rule that calls `dbus-send` to whatever is listening). It fires once per press and
+**cannot distinguish tap from hold**, and it will double-open the ring if the daemon is
+also listening. The canonical YAML is in [`mx4-rules.yaml`](mx4-rules.yaml); add it via
+Solaar's **Rule Editor** (Solaar → ☰ → Rule Editor) as a *Key* condition (`Haptic`,
+`pressed`) with an *Execute* action running:
 
 ```
 dbus-send --session --dest=dev.usidiamond.mx4 /dev/usidiamond/mx4 \
   dev.usidiamond.mx4.Daemon.ShowMenu string:default
 ```
 
-> The physical-tap path still needs a real tap to confirm end-to-end (we can't press the
-> panel from software). The `divert-keys` write and the `ShowMenu` D-Bus call are both
-> verified; the Solaar rule firing on the tap is the last manual check.
+`setup-solaar.sh --install-rule` appends it (with a backup), printing the double-fire
+warning.
 
-## Auto-detect (now built in)
+## Auto-detect (built in)
 
-The daemon **auto-detects** a running Solaar and defers the trigger to it without any
-manual config: `divert_panel = auto` (the default) scans `/proc` for a Solaar background
-process at startup and, when found, never diverts the panel (logging
-`Solaar detected -> deferring the Actions Ring trigger to Solaar`). When Solaar is not
-running it captures the panel itself, so the standalone path is fully self-sufficient and
-never depends on Solaar (the detector never imports `logitech_receiver`). Transient
-`solaar config` / `solaar show` CLI calls and the daemon's own process are excluded, so only
-a real long-lived Solaar counts. The detection is decision-only — haptics are still sent by
-the daemon directly; routing haptics through Solaar's `feature_request` remains a possible
-future option.
+The daemon **auto-detects** a running Solaar so you never have to configure the coexist
+behaviour by hand. `divert_panel = auto` (the default) scans `/proc` for a Solaar
+background process at startup and, when found, does **not** divert the panel — it logs
+that Solaar owns the divert and listens passively (to use the panel, divert the *Haptic*
+control in Solaar, as above). When Solaar is **not** running it captures the panel itself
+with confirmed HID++ writes, so the standalone path is fully self-sufficient and never
+depends on Solaar (the detector never imports `logitech_receiver`). Transient
+`solaar config` / `solaar show` CLI calls and the daemon's own process are excluded, so
+only a real long-lived Solaar counts. The detection is decision-only — haptics are always
+sent by the daemon directly.
