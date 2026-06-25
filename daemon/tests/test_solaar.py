@@ -110,7 +110,9 @@ def test_solaar_running_no_proc(monkeypatch):
     assert solaar_running() is False
 
 
-# -- the auto decision (Solaar present -> defer, absent -> divert) -----------
+# -- the auto decision: auto/true capture the panel, false defers to Solaar ----
+# (auto captures even under Solaar — via fire-and-forget writes — because tap vs.
+# hold needs the raw events, which a Solaar rule cannot provide.)
 
 
 def _daemon_with_mode(mode):
@@ -119,10 +121,11 @@ def _daemon_with_mode(mode):
     return Mx4Daemon(config=cfg)
 
 
-def test_auto_defers_when_solaar_present(monkeypatch):
+def test_auto_captures_when_solaar_present(monkeypatch):
     monkeypatch.setattr("mx4d.daemon.solaar_running", lambda: True)
     daemon = _daemon_with_mode(DIVERT_AUTO)
-    assert daemon._resolve_divert() is False  # defer to Solaar; do NOT divert
+    # Capture (so tap/hold work); setup() sends the divert fire-and-forget here.
+    assert daemon._resolve_divert() is True
 
 
 def test_auto_captures_when_solaar_absent(monkeypatch):

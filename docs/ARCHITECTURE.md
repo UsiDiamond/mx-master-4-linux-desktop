@@ -224,15 +224,19 @@ sequenceDiagram
     V-->>O: ActionChosen(id) then ring dismisses, overlay stays resident
 ```
 
-**Three ways the ring is summoned**, in priority order:
+**Summoning the ring:**
 
-1. **Solaar rule** (when Solaar runs) — a Solaar rule maps the `Haptic` panel to
-   `Execute dbus-send … Daemon.ShowMenu`. Solaar owns the device; the daemon does
-   **not** divert (no contention). Set up with `packaging/solaar/`.
-2. **`mx4-show`** — a tiny `dbus-send` wrapper (`packaging/bin/mx4-show`) you can
-   bind to any shortcut; calls `Daemon.ShowMenu`.
-3. **Standalone divert** — with no Solaar, the daemon diverts the Actions Ring
-   panel itself via `0x1B04` and decodes the press.
+1. **Panel tap / hold (primary).** The daemon captures the Actions Ring panel
+   (`0x1B04`, CID `0x01A0`) and distinguishes a **tap** from a **press-and-hold**
+   (threshold `[trigger] hold_threshold`); each summons a configurable menu
+   (`tap_menu` / `hold_menu`, both the default ring by default). Under a running
+   Solaar the divert is sent **fire-and-forget** so it doesn't contend — a Solaar
+   *rule* can't tell a tap from a hold, which is why the daemon captures.
+   `divert_panel=false` hands the panel back to Solaar (daemon listens passively).
+2. **`mx4-show`** — a tiny `dbus-send` wrapper (`packaging/bin/mx4-show`) calling
+   `Daemon.ShowMenu`; bind it to any keyboard/mouse shortcut.
+3. **D-Bus `ShowMenu(menuId)`** — the programmatic entry the others use, and the
+   test seam (no physical tap needed).
 
 ---
 
@@ -242,41 +246,44 @@ The project is **Solaar-first with a self-sufficient standalone fallback**: the
 standalone path never hard-depends on Solaar; Solaar integration is purely
 additive. When Solaar runs it owns the receiver as the registered HID++
 software, so our **request/response** probes (detection, capability read,
-`set_level`) get a broken pipe — but fire-and-forget **writes** (the haptic play
-packet) still land, and passive notification reads still work. So "coexist mode"
-does **no probing**: it takes the (firmware-stable, env-overridable) device
-coordinates as given and operates writes-only.
+`set_level`) get a broken pipe — but fire-and-forget **writes** and passive
+**notification reads** still work. Two consequences:
+
+* **Haptics** in coexist do **no probing**: the daemon takes the
+  (firmware-stable, env-overridable) device coordinates as given and plays
+  writes-only, against a preset capability mask.
+* **The trigger** is still *captured* in coexist (so a tap vs. hold can be
+  distinguished — a Solaar rule cannot) by sending the divert as a
+  **fire-and-forget write**, then reading the broadcast press/release
+  notifications. Only `divert_panel=false` hands the panel back to Solaar.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Resolve
-    Resolve --> ForceStandalone: divert_panel = true
-    Resolve --> CheckSolaar: divert_panel = auto
-    Resolve --> NeverDivert: divert_panel = false
+    [*] --> divert_panel
+    divert_panel --> Defer: false
+    divert_panel --> Capture: auto / true
 
-    CheckSolaar --> Defer: Solaar running
-    CheckSolaar --> Standalone: no Solaar
-
-    ForceStandalone --> Standalone
-    NeverDivert --> Defer
-
-    state Standalone {
-        [*] --> probe
-        probe: full HID++ probe + read capabilities
-        probe --> divert: divert the panel ourselves
+    state Capture {
+        [*] --> running
+        running: Solaar running?
+        running --> Confirmed: no — standalone
+        running --> FireForget: yes — coexist
+        Confirmed: divert via request/response\n(awaits the device reply)
+        FireForget: divert via fire-and-forget write\n(no contention with Solaar)
     }
     state Defer {
-        [*] --> coexist
-        coexist: writes-only (preset mask)\nSolaar owns settings + trigger
+        [*] --> passive
+        passive: do NOT divert; listen passively\nin case Solaar diverts the panel
     }
-    Standalone --> [*]
+    Capture --> [*]: tap / hold summon the ring
     Defer --> [*]
 ```
 
-`true`/`false` keep their legacy bool meaning exactly; `auto` (the default)
-picks per running Solaar. In **all** cases the daemon still does haptics +
-ambient mapping + overlay control — only the *trigger diversion* is gated, and
-the panel is **never left diverted** with nothing handling it.
+`true`/`false` keep their legacy bool meaning; `auto` (the default) captures the
+panel either way, picking confirmed vs. fire-and-forget per running Solaar. In
+**all** cases the daemon still does haptics + ambient mapping + overlay control,
+and the panel is **never left diverted** with nothing handling it (restored on
+shutdown).
 
 ---
 

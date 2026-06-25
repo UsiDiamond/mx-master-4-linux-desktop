@@ -28,7 +28,7 @@ import signal
 import threading
 from typing import Optional
 
-from .config import DIVERT_AUTO, DIVERT_TRUE, Mx4Config, load_config
+from .config import DIVERT_AUTO, DIVERT_FALSE, DIVERT_TRUE, Mx4Config, load_config
 from .device import MX4Device, find_mx_master_4
 from .haptics import HapticEngine
 from .overlay import OverlayController
@@ -156,11 +156,21 @@ class Mx4Daemon:
             self.haptics.read_capabilities()
 
         if self.enable_trigger:
+            # Capture (divert) so we can distinguish a tap from a press-and-hold
+            # and summon the ring. In coexist mode we capture with fire-and-forget
+            # writes (confirm=False) that don't contend with Solaar's
+            # request/response traffic; when we are NOT capturing (divert_panel=
+            # false) we still listen passively in case Solaar diverts the panel.
             self.trigger = TriggerWatcher(
                 self.device.transport,
                 self.device.reprog_index,
                 divert=divert,
+                confirm=not self._coexist,
+                listen=not divert,
+                hold_threshold=self.config.trigger_hold_threshold,
                 on_press=self._on_trigger_press,
+                on_tap=self._on_trigger_tap,
+                on_hold=self._on_trigger_hold,
                 on_release=self._on_trigger_release,
             )
 
@@ -168,40 +178,35 @@ class Mx4Daemon:
         self._build_sources()
 
     def _resolve_divert(self) -> bool:
-        """Resolve the tri-state ``[trigger] divert_panel`` to an effective bool.
+        """Whether to capture (divert) the Actions Ring panel ourselves.
 
-        * ``true``  -> divert + capture ourselves (standalone, forced).
-        * ``false`` -> never divert (Solaar-first, forced; Solaar's rule fires
-          ShowMenu). The daemon still does haptics + ambient + overlay.
-        * ``auto``  -> defer to Solaar if a Solaar background process is running
-          (do NOT divert — no contention), else capture ourselves (standalone).
+        * ``true`` / ``auto`` -> capture the panel so we can detect a tap vs. a
+          press-and-hold and summon the ring. Under a running Solaar (``auto``)
+          we still capture, but the (un)divert goes out as a fire-and-forget
+          write (see :class:`TriggerWatcher` ``confirm``) so it never contends
+          with Solaar's request/response traffic.
+        * ``false`` -> never capture; defer entirely to Solaar (its rule fires
+          ``ShowMenu``). The daemon still does haptics + ambient + overlay.
 
-        The daemon does haptics + ambient + ShowMenu + overlay in ALL cases; only
-        the *trigger* diversion is gated here. We never divert when deferring.
+        Tap/hold discrimination needs the raw press/release events, which a
+        Solaar *rule* cannot provide — hence ``auto`` captures rather than
+        defers. Set ``false`` to hand the panel back to Solaar.
         """
         mode = self.config.divert_panel
-        if mode == DIVERT_TRUE:
-            return True
-        if mode == DIVERT_AUTO and solaar_running():
+        if mode == DIVERT_FALSE:
             logger.info(
-                "Solaar detected -> deferring the Actions Ring trigger to Solaar "
-                "(ensure the Solaar rule is set up: run "
-                "packaging/solaar/setup-solaar.sh or add it in Solaar's Rule "
-                "Editor)"
+                "trigger.divert_panel=false -> leaving the Actions Ring panel to "
+                "Solaar (the daemon provides haptics + overlay only)"
             )
             return False
-        if mode == DIVERT_AUTO:
+        if mode == DIVERT_AUTO and solaar_running():
             logger.info(
-                "no Solaar detected -> capturing the Actions Ring panel "
-                "ourselves (standalone)"
+                "Solaar detected -> capturing the Actions Ring panel via "
+                "fire-and-forget writes (coexist; tap and hold summon the ring)"
             )
-            return True
-        # mode == DIVERT_FALSE
-        logger.info(
-            "trigger.divert_panel=false -> leaving the Actions Ring panel to "
-            "Solaar (the daemon provides haptics + overlay only)"
-        )
-        return False
+        else:
+            logger.info("capturing the Actions Ring panel for tap/hold (standalone)")
+        return True
 
     def _build_sources(self) -> None:
         candidates: list[Source] = [
@@ -330,40 +335,51 @@ class Mx4Daemon:
             self._mainloop.quit()
 
     # -- trigger ---------------------------------------------------------
+    # The panel callbacks run on the HID *reader* thread (or, for the hold timer,
+    # a Timer thread), NOT the GLib/dbus mainloop. dbus-python and the
+    # OverlayController's GLib-timeout machinery must be touched only from the
+    # mainloop, so every overlay-show / D-Bus emit is marshalled there via
+    # ``GLib.idle_add``; the buzz goes to the (thread-safe) device-I/O worker.
+    # The ring opens on a *tap* or a *hold*, never the bare press, so a press
+    # that becomes a hold does not double-open.
     def _on_trigger_press(self, cid: int) -> None:
-        """Handle an Actions-Ring press: log, buzz, raise overlay, emit signal.
+        """Actions-Ring pressed: emit ``TriggerPressed`` (open happens on tap/hold)."""
+        logger.debug("Actions Ring pressed (CID 0x%04X)", cid)
+        from gi.repository import GLib
 
-        This callback runs on the HID *reader* thread, NOT the GLib/dbus
-        mainloop thread. dbus-python and the OverlayController's GLib-timeout
-        machinery expect to be touched only from the mainloop thread, so we
-        marshal the overlay-show + the D-Bus signal onto the mainloop via
-        ``GLib.idle_add`` rather than calling them inline here. The buzz is
-        dispatched to the (thread-safe) device-I/O worker, so this callback
-        never blocks on a haptic write either.
-        """
-        logger.info("menu requested (Actions Ring CID 0x%04X)", cid)
+        GLib.idle_add(self._emit_trigger_pressed)
+
+    def _on_trigger_tap(self, cid: int) -> None:
+        """A short tap of the panel: summon the tap menu."""
+        logger.info("Actions Ring tapped -> radial menu (CID 0x%04X)", cid)
+        self._summon_menu(self.config.trigger_tap_menu)
+
+    def _on_trigger_hold(self, cid: int) -> None:
+        """A press-and-hold of the panel: summon the hold menu (task manager)."""
+        logger.info("Actions Ring held -> radial task manager (CID 0x%04X)", cid)
+        self._summon_menu(self.config.trigger_hold_menu)
+
+    def _summon_menu(self, menu_id: str) -> None:
+        """Buzz a confirm tick (off the mainloop) and raise the overlay (on it)."""
         if self.haptics is not None:
             try:
                 self._io_queue.put_nowait(("force_play", self.config.trigger_waveform))
             except queue.Full:
                 logger.debug("io queue full; dropping trigger buzz")
-        # Marshal overlay-show + signal onto the mainloop thread (dbus-python
-        # and the OverlayController's GLib work must run single-threaded there).
         from gi.repository import GLib
 
-        GLib.idle_add(self._show_menu_and_signal)
+        GLib.idle_add(self._show_menu_idle, menu_id)
 
-    def _show_menu_and_signal(self) -> bool:
-        """Raise the overlay and emit ``TriggerPressed`` (runs on the mainloop).
-
-        Scheduled via ``GLib.idle_add`` from the HID reader thread so all
-        OverlayController D-Bus / GLib-timeout work stays on the mainloop thread.
-        Returns ``False`` so the idle source fires exactly once.
-        """
-        # Raise the radial overlay (lazily launching it if needed).
-        self.show_menu()
+    def _emit_trigger_pressed(self) -> bool:
+        """Emit ``TriggerPressed`` on the mainloop (fires once)."""
         if self._dbus_service is not None:
             self._dbus_service.TriggerPressed()
+        return False
+
+    def _show_menu_idle(self, menu_id: str) -> bool:
+        """Raise the overlay for ``menu_id`` on the mainloop (fires once)."""
+        # An empty menu id falls back to the configured default menu.
+        self.show_menu(menu_id or None)
         return False
 
     def show_menu(self, menu_id: Optional[str] = None) -> bool:
@@ -380,10 +396,17 @@ class Mx4Daemon:
         return self._overlay.show_menu(menu_id)
 
     def _on_trigger_release(self, cid: int) -> None:
-        """Handle an Actions-Ring release: emit D-Bus signal."""
+        """Actions-Ring released: emit ``TriggerReleased`` (marshalled to mainloop)."""
         logger.debug("Actions Ring released (CID 0x%04X)", cid)
+        from gi.repository import GLib
+
+        GLib.idle_add(self._emit_trigger_released)
+
+    def _emit_trigger_released(self) -> bool:
+        """Emit ``TriggerReleased`` on the mainloop (fires once)."""
         if self._dbus_service is not None:
             self._dbus_service.TriggerReleased()
+        return False
 
     # -- run -------------------------------------------------------------
     def run(self) -> int:

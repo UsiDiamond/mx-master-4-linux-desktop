@@ -200,6 +200,23 @@ def test_default_config_writes_auto(tmp_path):
         assert "divert_panel = auto" in fh.read()
 
 
+def test_trigger_hold_and_menu_defaults_roundtrip(tmp_path):
+    # Hold threshold + per-gesture menu ids default sanely and survive a save.
+    c = default_config()
+    assert c.trigger_hold_threshold == 0.4
+    assert c.trigger_tap_menu == ""  # empty -> the default menu
+    assert c.trigger_hold_menu == ""
+    path = os.path.join(tmp_path, "config.ini")
+    c.trigger_hold_threshold = 0.6
+    c.trigger_tap_menu = "apps"
+    c.trigger_hold_menu = "tasks"
+    c.save(path)
+    reloaded = load_config(path, write_defaults=False)
+    assert reloaded.trigger_hold_threshold == 0.6
+    assert reloaded.trigger_tap_menu == "apps"
+    assert reloaded.trigger_hold_menu == "tasks"
+
+
 def test_unknown_keys_preserved(tmp_path):
     path = os.path.join(tmp_path, "config.ini")
     load_config(path)

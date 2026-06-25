@@ -242,6 +242,30 @@ QString detectTaskManager()
     return QStringLiteral("xterm -e htop");
 }
 
+// First-on-PATH application launcher / start menu. MUST mirror MenuConfig.cpp's
+// detectAppLauncher ordering so the GUI's default agrees with the overlay.
+QString detectAppLauncher()
+{
+    static const QVector<QStringList> candidates = {
+        {QStringLiteral("krunner")},
+        {QStringLiteral("lxqt-runner")},
+        {QStringLiteral("rofi"), QStringLiteral("-show"), QStringLiteral("drun")},
+        {QStringLiteral("wofi"), QStringLiteral("--show"), QStringLiteral("drun")},
+        {QStringLiteral("ulauncher")},
+        {QStringLiteral("albert"), QStringLiteral("toggle")},
+        {QStringLiteral("xfce4-appfinder")},
+        {QStringLiteral("synapse")},
+        {QStringLiteral("gmrun")},
+        {QStringLiteral("dmenu_run")},
+    };
+    for (const QStringList &argv : candidates) {
+        if (!QStandardPaths::findExecutable(argv.first()).isEmpty()) {
+            return argv.join(QLatin1Char(' '));
+        }
+    }
+    return QStringLiteral("xterm");
+}
+
 } // namespace
 
 ConfigModel::ConfigModel(QObject *parent)
@@ -347,9 +371,9 @@ void ConfigModel::load()
     // MenuConfig::loadBuiltinDefault). A SAVE then persists it explicitly.
     if (!exists || m_segmentList.isEmpty()) {
         m_segmentList = {
-            {QStringLiteral("launcher"), QStringLiteral("Launcher"),
-             QStringLiteral("system-run"), QStringLiteral("command"),
-             QStringLiteral("krunner")},
+            {QStringLiteral("appmenu"), QStringLiteral("Applications"),
+             QStringLiteral("applications-all"), QStringLiteral("command"),
+             detectAppLauncher()},
             {QStringLiteral("switchdesktop"), QStringLiteral("Next Desktop"),
              QStringLiteral("virtual-desktops"), QStringLiteral("command"),
              QStringLiteral("qdbus6 org.kde.KWin /KWin nextDesktop")},

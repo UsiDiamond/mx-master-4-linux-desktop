@@ -155,16 +155,18 @@ intensity = 50
 
 [trigger]
 divert_panel = auto       ; TRI-STATE — how the Actions Ring trigger is captured:
-                          ;   auto  = defer to Solaar if a Solaar background
-                          ;           process is running (no divert, no
-                          ;           contention); otherwise capture the panel
-                          ;           ourselves (standalone). This is the default.
-                          ;   true  = always capture ourselves (forced standalone).
-                          ;   false = never capture; Solaar owns the trigger and
-                          ;           its rule fires ShowMenu (daemon does haptics
-                          ;           + overlay only). Legacy true/false values in
-                          ;           existing configs keep their old meaning.
-waveform = HAPPY_ALERT    ; played on a trigger press (placeholder)
+                          ;   auto  = capture the panel (so a tap and a hold both
+                          ;           summon the ring); under a running Solaar the
+                          ;           divert is sent fire-and-forget so it doesn't
+                          ;           contend. This is the default.
+                          ;   true  = always capture, confirmed (forced standalone).
+                          ;   false = never capture; defer to Solaar (the daemon
+                          ;           listens passively + does haptics + overlay).
+                          ;           Legacy true/false values keep their meaning.
+waveform = HAPPY_ALERT    ; buzz played when the ring opens
+hold_threshold = 0.4      ; seconds; a press held longer counts as a "hold"
+tap_menu =                ; menu id a tap opens   (empty = the default menu)
+hold_menu =               ; menu id a hold opens  (empty = the default menu)
 
 [radial]
 center/command = ...      ; auto-detected task manager (see below)
@@ -212,25 +214,30 @@ Unit tests run against an in-memory fake hidraw (no hardware needed):
 
 ```bash
 cd daemon
-pytest -q        # 64 tests
+pytest -q        # 69 tests
 ```
 
 They cover request framing / func_byte math, response demux, getFeature parsing,
 the waveform table + capability gating + fallback, the play-packet byte
-contract, setCidReporting param construction, press/release detection, config
-defaults + persistence (incl. the `divert_panel` tri-state + bool back-compat),
-Solaar background-process detection, the auto defer decision, and task-manager
+contract, setCidReporting param construction, press/tap/hold detection, the
+coexist fire-and-forget divert + passive listen, config defaults + persistence
+(incl. the `divert_panel` tri-state + bool back-compat), Solaar
+background-process detection, the auto capture decision, and task-manager
 detection.
 
-### Solaar-first: automatic trigger deferral
+### Tap vs. hold, and Solaar coexistence
 
-With `divert_panel = auto` (the default) the daemon cheaply scans `/proc` for a
-running Solaar background process. If Solaar is present it **does not** divert the
-Actions Ring panel — Solaar owns it and its rule fires `ShowMenu` — so there is
-no device contention; the daemon still provides haptics, ambient mapping and the
-overlay. If Solaar is absent the daemon captures the panel itself (standalone).
-The detector never imports `logitech_receiver` and returns `False` (never raises)
-when Solaar is not installed, so the standalone path never depends on Solaar. To
-also install the Solaar rule, run `packaging/solaar/setup-solaar.sh`. Force either
-behaviour explicitly with `divert_panel = true` (always capture) or `false`
-(never capture).
+The daemon **captures** the Actions Ring panel (`0x1B04`, CID `0x01A0`) so it can
+tell a **tap** from a **press-and-hold** — which a Solaar *rule* cannot do. A tap
+and a hold each summon a (configurable) radial menu; by default both open the
+default ring (Task Manager center + an auto-detected application launcher).
+
+With `divert_panel = auto` (the default) the daemon captures the panel **even
+when Solaar is running**: it sends the divert as a **fire-and-forget write**,
+which lands without contending with Solaar's request/response traffic (the same
+trick the haptics use). It cheaply scans `/proc` to detect Solaar (never
+importing `logitech_receiver`, returning `False` when Solaar is absent), so the
+standalone path never depends on Solaar. Set `divert_panel = false` to hand the
+panel back to Solaar (the daemon then only listens passively, in case Solaar
+diverts it); `true` forces confirmed standalone capture. The hold cut-off is
+`[trigger] hold_threshold` seconds.

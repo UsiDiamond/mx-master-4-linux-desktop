@@ -35,6 +35,31 @@ QString qdbusBin()
     return QStringLiteral("qdbus6");
 }
 
+// First-on-PATH application launcher / "start menu" for this environment.
+// krunner (KDE) does not exist on LXQt, so we probe a cross-desktop list and
+// fall back to a terminal. Kept ordered so the result is deterministic.
+QStringList detectAppLauncher()
+{
+    static const QVector<QStringList> candidates = {
+        {QStringLiteral("krunner")},
+        {QStringLiteral("lxqt-runner")},
+        {QStringLiteral("rofi"), QStringLiteral("-show"), QStringLiteral("drun")},
+        {QStringLiteral("wofi"), QStringLiteral("--show"), QStringLiteral("drun")},
+        {QStringLiteral("ulauncher")},
+        {QStringLiteral("albert"), QStringLiteral("toggle")},
+        {QStringLiteral("xfce4-appfinder")},
+        {QStringLiteral("synapse")},
+        {QStringLiteral("gmrun")},
+        {QStringLiteral("dmenu_run")},
+    };
+    for (const QStringList &argv : candidates) {
+        if (onPath(argv.first())) {
+            return argv;
+        }
+    }
+    return {QStringLiteral("xterm")}; // last resort: a terminal to launch apps
+}
+
 // Quote-aware split with NO shell semantics. Empty/garbage yields {}.
 QStringList splitCommand(const QString &command)
 {
@@ -88,6 +113,7 @@ QStringList MenuConfig::detectTaskManager()
 void MenuConfig::loadBuiltinDefault()
 {
     const QStringList taskMgr = detectTaskManager();
+    const QStringList appLauncher = detectAppLauncher();
 
     m_center = MenuItem{
         QStringLiteral("taskmanager"),
@@ -99,11 +125,12 @@ void MenuConfig::loadBuiltinDefault()
 
     // Sensible default ring (all user-editable later). Programs are launched
     // only if present; a missing program simply fails the QProcess start and
-    // is logged, never crashes.
+    // is logged, never crashes. The first slot is the auto-detected application
+    // launcher / start menu, so the ring always "includes the app menu".
     m_segments = {
-        {QStringLiteral("launcher"), QStringLiteral("Launcher"),
-         QStringLiteral("system-run"), QStringLiteral("command"),
-         {QStringLiteral("krunner")}},
+        {QStringLiteral("appmenu"), QStringLiteral("Applications"),
+         QStringLiteral("applications-all"), QStringLiteral("command"),
+         appLauncher},
 
         {QStringLiteral("switchdesktop"), QStringLiteral("Next Desktop"),
          QStringLiteral("virtual-desktops"), QStringLiteral("command"),

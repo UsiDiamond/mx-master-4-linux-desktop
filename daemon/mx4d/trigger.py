@@ -52,6 +52,11 @@ logger = logging.getLogger(__name__)
 # How many confirmed restore attempts before falling back to fire-and-forget.
 RESTORE_ATTEMPTS = 3
 
+# Default press-and-hold threshold (seconds). A press released sooner than this
+# is a "tap"; one held at least this long is a "hold". Tuned so a deliberate
+# hold is unambiguous without making a normal tap feel laggy.
+HOLD_THRESHOLD_DEFAULT = 0.4
+
 # REPROG CONTROLS V4 (0x1B04) function ids (function nibble).
 REPROG_FN_GET_COUNT = 0x0
 REPROG_FN_GET_CID_INFO = 0x1
@@ -117,7 +122,12 @@ class TriggerWatcher:
         *,
         cid: int = ACTIONS_RING_CID,
         divert: bool = True,
+        confirm: bool = True,
+        listen: bool = False,
+        hold_threshold: float = HOLD_THRESHOLD_DEFAULT,
         on_press: Optional[PressCallback] = None,
+        on_tap: Optional[PressCallback] = None,
+        on_hold: Optional[PressCallback] = None,
         on_release: Optional[PressCallback] = None,
     ) -> None:
         """Configure the watcher (call :meth:`start` to actually divert).
@@ -125,103 +135,176 @@ class TriggerWatcher:
         :param transport: an open transport for the device.
         :param reprog_index: runtime feature index of ``0x1B04``.
         :param cid: the control id to capture (default the Actions Ring panel).
-        :param divert: if ``False``, do not divert (the panel keeps its default
-            behaviour); the watcher then does nothing. Maps to config key
-            ``trigger.divert_panel``.
-        :param on_press: called with the CID when the panel is pressed.
-        :param on_release: called with the CID when the panel is released.
+        :param divert: if ``True``, divert the control so its presses arrive as
+            HID++ notifications. Maps to config key ``trigger.divert_panel``.
+        :param confirm: if ``True`` the (un)divert is a request/response that
+            awaits the device's reply (standalone). If ``False`` it is sent
+            fire-and-forget via a raw write — used in Solaar coexist mode, where
+            a request/response would get a broken pipe but a write still lands,
+            so we can still capture the panel without contending with Solaar.
+        :param listen: if ``True`` (and ``divert`` is ``False``) subscribe to the
+            control's notifications WITHOUT diverting it — for the case where
+            something else (Solaar) has already diverted the panel and we only
+            want to read the broadcast press/release events.
+        :param hold_threshold: seconds a press must be held to count as a hold
+            rather than a tap (see :data:`HOLD_THRESHOLD_DEFAULT`).
+        :param on_press: called with the CID on every press (gesture start).
+        :param on_tap: called with the CID on release IF the press was a short
+            tap (held less than ``hold_threshold``).
+        :param on_hold: called with the CID once a press is held at least
+            ``hold_threshold`` (fires while still held, before release).
+        :param on_release: called with the CID on every release (gesture end).
         """
         self.transport = transport
         self.reprog_index = reprog_index
         self.cid = cid
         self.divert = divert
+        self.confirm = confirm
+        self.listen = listen
+        self.hold_threshold = hold_threshold
         self.on_press = on_press
+        self.on_tap = on_tap
+        self.on_hold = on_hold
         self.on_release = on_release
 
         self._pressed = False
+        self._held = False
+        self._hold_timer: Optional[threading.Timer] = None
         self._started = False
         self._lock = threading.Lock()
         self._atexit_registered = False
 
     # -- lifecycle -------------------------------------------------------
     def start(self) -> bool:
-        """Divert the control and subscribe to its notifications.
+        """Begin capturing the control: optionally divert it, then subscribe.
 
-        :returns: ``True`` if diversion was enabled, ``False`` if disabled by
-            config or if the device rejected the request (logged, non-fatal).
+        :returns: ``True`` if the watcher is now listening, ``False`` if it has
+            nothing to do (neither diverting nor listening) or a confirmed
+            divert was rejected by the device (logged, non-fatal).
         """
-        if not self.divert:
-            logger.info("trigger diversion disabled by config; panel left native")
+        if not self.divert and not self.listen:
+            logger.info("trigger disabled by config; panel left native")
             return False
         with self._lock:
             if self._started:
                 return True
+            if self.divert and not self._set_divert(True):
+                return False
+            # Subscribe whether we diverted (standalone / coexist-write) or are
+            # only listening to a divert another process (Solaar) set up.
+            self.transport.add_notification_callback(
+                self._on_notification, self.reprog_index
+            )
+            self._started = True
+            if self.divert and not self._atexit_registered:
+                # Only register the restore hook when WE did the diverting.
+                atexit.register(self.stop)
+                self._atexit_registered = True
+            if self.divert:
+                logger.info(
+                    "capturing Actions Ring CID 0x%04X (%s)",
+                    self.cid,
+                    "confirmed" if self.confirm else "fire-and-forget coexist",
+                )
+            else:
+                logger.info(
+                    "listening for Actions Ring CID 0x%04X (passive; another "
+                    "process owns the divert)",
+                    self.cid,
+                )
+            return True
+
+    def _set_divert(self, divert: bool) -> bool:
+        """Send setCidReporting to (un)divert the control.
+
+        Confirmed mode awaits the device reply and reports failure. Coexist mode
+        sends the packet fire-and-forget (no reply awaited), so it lands without
+        contending with a running Solaar's request/response traffic.
+        """
+        params = build_set_cid_reporting_params(self.cid, divert=divert)
+        if self.confirm:
             try:
-                params = build_set_cid_reporting_params(self.cid, divert=True)
                 self.transport.call(
                     self.reprog_index,
                     REPROG_FN_SET_CID_REPORTING,
                     *params,
                     long=True,
                 )
+                return True
             except (HidppError, HidppTimeout, OSError) as exc:
-                logger.error("failed to divert CID 0x%04X: %s", self.cid, exc)
+                logger.error(
+                    "failed to %sdivert CID 0x%04X: %s",
+                    "" if divert else "un-",
+                    self.cid,
+                    exc,
+                )
                 return False
-            self.transport.add_notification_callback(
-                self._on_notification, self.reprog_index
-            )
-            self._started = True
-            if not self._atexit_registered:
-                atexit.register(self.stop)
-                self._atexit_registered = True
-            logger.info("diverted Actions Ring CID 0x%04X for capture", self.cid)
+        try:
+            self.transport.write_raw(self._divert_packet(params))
             return True
+        except OSError as exc:
+            logger.error(
+                "failed to write %sdivert for CID 0x%04X: %s",
+                "" if divert else "un-",
+                self.cid,
+                exc,
+            )
+            return False
+
+    def _divert_packet(self, params: list[int]) -> bytes:
+        """Build the long ``setCidReporting`` report for a fire-and-forget write."""
+        header = [
+            LONG_REPORT_ID,
+            self.transport.device_index,
+            self.reprog_index,
+            func_byte(REPROG_FN_SET_CID_REPORTING),
+        ]
+        return bytes(header + params).ljust(LONG_LEN, b"\x00")[:LONG_LEN]
 
     def stop(self) -> None:
-        """Restore the control to non-diverted. Idempotent; safe in finally.
+        """Stop capturing and, if WE diverted, restore the control. Idempotent.
 
-        Retries the restore a few times (the device can be momentarily
-        unresponsive) and, as a last resort, sends the restore packet
-        fire-and-forget so the write lands even if no reply comes back — leaving
-        the user's mouse clean is the priority.
+        Cancels any pending hold timer and unsubscribes first. A listen-only
+        watcher never diverted, so it has nothing to restore. When we did
+        divert: confirmed mode retries the restore a few times then falls back
+        to a fire-and-forget write; coexist mode is fire-and-forget from the
+        start. Leaving the user's mouse clean is the priority.
         """
         with self._lock:
             if not self._started:
                 return
             self._started = False
+            self._cancel_hold_timer()
             self.transport.remove_notification_callback(
                 self._on_notification, self.reprog_index
             )
+            if not self.divert:
+                return  # listen-only: we never diverted, nothing to restore
+
             params = build_set_cid_reporting_params(self.cid, divert=False)
-            for attempt in range(RESTORE_ATTEMPTS):
-                try:
-                    self.transport.call(
-                        self.reprog_index,
-                        REPROG_FN_SET_CID_REPORTING,
-                        *params,
-                        long=True,
-                    )
-                    logger.info("restored CID 0x%04X to non-diverted", self.cid)
-                    return
-                except (HidppError, HidppTimeout, OSError) as exc:
-                    logger.debug(
-                        "restore attempt %d for CID 0x%04X failed: %s",
-                        attempt + 1,
-                        self.cid,
-                        exc,
-                    )
-            # Last resort: blast the restore packet without awaiting a reply.
+            if self.confirm:
+                for attempt in range(RESTORE_ATTEMPTS):
+                    try:
+                        self.transport.call(
+                            self.reprog_index,
+                            REPROG_FN_SET_CID_REPORTING,
+                            *params,
+                            long=True,
+                        )
+                        logger.info("restored CID 0x%04X to non-diverted", self.cid)
+                        return
+                    except (HidppError, HidppTimeout, OSError) as exc:
+                        logger.debug(
+                            "restore attempt %d for CID 0x%04X failed: %s",
+                            attempt + 1,
+                            self.cid,
+                            exc,
+                        )
+            # Last resort (or coexist default): write the restore without a reply.
             try:
-                header = [
-                    LONG_REPORT_ID,
-                    self.transport.device_index,
-                    self.reprog_index,
-                    func_byte(REPROG_FN_SET_CID_REPORTING),
-                ]
-                packet = bytes(header + params).ljust(LONG_LEN, b"\x00")[:LONG_LEN]
-                self.transport.write_raw(packet)
-                logger.warning(
-                    "restored CID 0x%04X via fire-and-forget (no reply confirmed)",
+                self.transport.write_raw(self._divert_packet(params))
+                logger.info(
+                    "restored CID 0x%04X to non-diverted (fire-and-forget)",
                     self.cid,
                 )
             except OSError as exc:
@@ -233,7 +316,7 @@ class TriggerWatcher:
 
     # -- notification handling ------------------------------------------
     def _on_notification(self, report: bytes) -> None:
-        """Translate a divertedButtonsEvent into press/release callbacks."""
+        """Translate a divertedButtonsEvent into press/tap/hold/release."""
         # Only the function-0x00 broadcast (software-id nibble 0) is a button
         # event; the reader thread already filtered to our feature index.
         if len(report) < 4:
@@ -243,12 +326,59 @@ class TriggerWatcher:
         pressed_cids = parse_pressed_cids(report)
         now_pressed = self.cid in pressed_cids
         if now_pressed and not self._pressed:
-            self._pressed = True
-            logger.debug("Actions Ring pressed")
-            if self.on_press is not None:
-                self.on_press(self.cid)
+            self._on_press()
         elif not now_pressed and self._pressed:
-            self._pressed = False
-            logger.debug("Actions Ring released")
-            if self.on_release is not None:
-                self.on_release(self.cid)
+            self._on_release()
+
+    def _on_press(self) -> None:
+        """Panel went down: fire on_press and arm the hold timer."""
+        self._pressed = True
+        self._held = False
+        logger.debug("Actions Ring pressed")
+        if self.on_press is not None:
+            self.on_press(self.cid)
+        self._start_hold_timer()
+
+    def _on_release(self) -> None:
+        """Panel came up: a press shorter than the hold threshold is a tap."""
+        self._pressed = False
+        self._cancel_hold_timer()
+        was_hold = self._held
+        self._held = False
+        logger.debug("Actions Ring released (was_hold=%s)", was_hold)
+        # A tap fires only if the press never crossed the hold threshold.
+        if not was_hold and self.on_tap is not None:
+            self.on_tap(self.cid)
+        if self.on_release is not None:
+            self.on_release(self.cid)
+
+    # -- hold timer ------------------------------------------------------
+    def _start_hold_timer(self) -> None:
+        """Arm a one-shot timer that fires on_hold if the press is held."""
+        self._cancel_hold_timer()
+        if self.on_hold is None or self.hold_threshold <= 0:
+            return
+        timer = threading.Timer(self.hold_threshold, self._fire_hold)
+        timer.daemon = True
+        self._hold_timer = timer
+        timer.start()
+
+    def _cancel_hold_timer(self) -> None:
+        """Cancel a pending hold timer (no-op if none is armed)."""
+        if self._hold_timer is not None:
+            self._hold_timer.cancel()
+            self._hold_timer = None
+
+    def _fire_hold(self) -> None:
+        """Hold threshold reached (runs on the Timer thread).
+
+        Fires only if the panel is still down and we have not already reported a
+        hold for this press — a release cancels the timer, but this guards the
+        race where the timer fires just as the release arrives.
+        """
+        if not self._pressed or self._held:
+            return
+        self._held = True
+        logger.debug("Actions Ring held (CID 0x%04X)", self.cid)
+        if self.on_hold is not None:
+            self.on_hold(self.cid)

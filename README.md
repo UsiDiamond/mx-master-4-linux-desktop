@@ -162,9 +162,13 @@ waveform = DAMP_COLLISION
 intensity = 50
 
 [trigger]
-divert_panel = auto        ; auto = defer to Solaar if running, else capture
-                           ; ourselves; true = always capture; false = never
-waveform = HAPPY_ALERT     ; played on a trigger press
+divert_panel = auto        ; auto/true = capture the panel so a tap and a hold
+                           ; both summon the ring (under Solaar via fire-and-
+                           ; forget writes); false = defer to Solaar
+waveform = HAPPY_ALERT     ; buzz played when the ring opens
+hold_threshold = 0.4       ; seconds; a press held longer counts as a "hold"
+tap_menu =                 ; menu id a tap opens (empty = the default menu)
+hold_menu =                ; menu id a hold opens (empty = the default menu)
 
 [radial]
 center/command = plasma-systemmonitor   ; auto-detected Task Manager (no shell)

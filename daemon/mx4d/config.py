@@ -114,6 +114,13 @@ class Mx4Config:
     # (always capture, standalone) / "false" (never capture, Solaar handles it).
     divert_panel: str
     trigger_waveform: str
+    # Press-and-hold threshold (s) splitting a panel tap from a hold.
+    trigger_hold_threshold: float
+    # Menu id shown on a tap vs. a hold of the panel. Empty -> the default menu
+    # (radial_default_menu). The overlay resolves a menu id to its [radial:<id>]
+    # section, falling back to [radial] / the built-in ring.
+    trigger_tap_menu: str
+    trigger_hold_menu: str
     # [radial]
     radial_center_action: str
     radial_center_label: str
@@ -146,6 +153,9 @@ class Mx4Config:
         # through _b(), or "auto" would silently degrade to "false".
         _set(p, "trigger", "divert_panel", parse_divert_panel(self.divert_panel))
         _set(p, "trigger", "waveform", self.trigger_waveform)
+        _set(p, "trigger", "hold_threshold", str(self.trigger_hold_threshold))
+        _set(p, "trigger", "tap_menu", self.trigger_tap_menu)
+        _set(p, "trigger", "hold_menu", self.trigger_hold_menu)
         # Use the SAME key the C++ overlay reads (QSettings "center/command")
         # so a user editing the shared INI affects both processes. The legacy
         # "center_action" key is still read on load for backward compatibility.
@@ -212,6 +222,12 @@ def _default_parser() -> configparser.ConfigParser:
         # (capability mask 0x0001003C). HAPPY_ALERT is, and reads as a clear
         # confirmation tick; the engine also falls back if this is unsupported.
         "waveform": "HAPPY_ALERT",
+        # Press-and-hold threshold (s) splitting a tap from a hold of the panel.
+        "hold_threshold": "0.4",
+        # Which menu a tap vs. a hold opens. Empty -> the default menu. They are
+        # separate so a tap and a hold can summon different rings if desired.
+        "tap_menu": "",
+        "hold_menu": "",
     }
     # Shared with the C++ overlay's MenuConfig (QSettings "center/command").
     p["radial"] = {
@@ -289,6 +305,9 @@ def _build(parser: configparser.ConfigParser) -> Mx4Config:
         sources=sources,
         divert_panel=parse_divert_panel(get("trigger", "divert_panel")),
         trigger_waveform=get("trigger", "waveform"),
+        trigger_hold_threshold=getfloat("trigger", "hold_threshold"),
+        trigger_tap_menu=get("trigger", "tap_menu", fallback="").strip(),
+        trigger_hold_menu=get("trigger", "hold_menu", fallback="").strip(),
         radial_center_action=center,
         radial_center_label=center_label,
         radial_center_icon=center_icon,
