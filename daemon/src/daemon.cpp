@@ -26,9 +26,9 @@ MX4Daemon::MX4Daemon(QObject* parent)
                 emit notificationReceived(app, summary);
                 // Ambient haptic: HAPPY_ALERT for any notification (configurable in future)
                 if (m_haptics && m_device)
-                    m_haptics->playWaveform(*m_device,
-                                            static_cast<uint8_t>(HapticsFeature::HappyAlert),
-                                            60);
+                    (void)m_haptics->playWaveform(*m_device,
+                                                  static_cast<uint8_t>(HapticsFeature::HappyAlert),
+                                                  60);
             });
 
     // TODO(P1): startTriggerLoop() — start polling thread for Actions Ring CID
@@ -74,7 +74,7 @@ void MX4Daemon::startTriggerLoop()
     if (!m_trigger || !m_device) return;
 
     // Divert the Actions Ring CID so presses come as HID++ notifications
-    m_trigger->divertCid(*m_device, TriggerFeature::CID_ACTIONS_RING, true);
+    (void)m_trigger->divertCid(*m_device, TriggerFeature::CID_ACTIONS_RING, true);
 
     // Run the blocking read loop on a dedicated thread
     auto* thread = QThread::create([this]() {
@@ -93,11 +93,11 @@ void MX4Daemon::startTriggerLoop()
 void MX4Daemon::PlayHaptic(quint8 waveform, quint8 intensity)
 {
     if (m_haptics && m_device)
-        m_haptics->playWaveform(*m_device, waveform, intensity);
+        (void)m_haptics->playWaveform(*m_device, waveform, intensity);
 }
 
 void MX4Daemon::SetHapticLevel(quint8 level)
 {
     if (m_haptics && m_device)
-        m_haptics->setLevel(*m_device, level);
+        (void)m_haptics->setLevel(*m_device, level);
 }

@@ -14,7 +14,8 @@ include(KDECompilerSettings)
 include(KDECMakeSettings)
 include(ECMSetupVersion)
 
-ECMSetupVersion(${PROJECT_VERSION}
+# Generate a version header (function name is lowercase in ECM)
+ecm_setup_version(${PROJECT_VERSION}
     VARIABLE_PREFIX MX4D
     VERSION_HEADER "${CMAKE_CURRENT_BINARY_DIR}/mx4d_version.h"
 )

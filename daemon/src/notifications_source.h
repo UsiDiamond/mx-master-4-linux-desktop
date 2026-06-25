@@ -1,4 +1,6 @@
 #pragma once
+#include <QDBusConnection>
+#include <QDBusMessage>
 #include <QObject>
 #include <QString>
 

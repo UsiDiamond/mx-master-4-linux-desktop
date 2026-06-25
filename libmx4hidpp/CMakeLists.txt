@@ -23,6 +23,11 @@ set_target_properties(mx4hidpp PROPERTIES
     SOVERSION ${PROJECT_VERSION_MAJOR}
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON
+    # KDECompilerSettings sets -fvisibility=hidden; override so our classes
+    # are exported without needing visibility macros in the scaffold.
+    # TODO(P1): replace with ECMGenerateExportHeader + MX4HIDPP_EXPORT annotation.
+    CXX_VISIBILITY_PRESET default
+    VISIBILITY_INLINES_HIDDEN OFF
 )
 
 install(TARGETS mx4hidpp

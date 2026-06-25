@@ -4,14 +4,14 @@ set(OVERLAY_SOURCES
     src/radial_window.h
 )
 
-# QML resources
-qt6_add_resources(OVERLAY_SOURCES "overlay_qml"
+add_executable(mx4-radial ${OVERLAY_SOURCES})
+
+# QML resources — must be added after the target is defined
+qt6_add_resources(mx4-radial "overlay_qml"
     PREFIX "/qml"
     FILES
         qml/RadialMenu.qml
 )
-
-add_executable(mx4-radial ${OVERLAY_SOURCES})
 
 target_link_libraries(mx4-radial
     PRIVATE

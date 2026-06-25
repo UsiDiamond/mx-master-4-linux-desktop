@@ -13,22 +13,23 @@ int main(int argc, char** argv)
     app.setOrganizationDomain(QStringLiteral("snapdragon.systems"));
 
     // Register the well-known service name on the session bus
-    auto& bus = QDBusConnection::sessionBus();
-    if (!bus.isConnected()) {
+    if (!QDBusConnection::sessionBus().isConnected()) {
         QTextStream(stderr) << "mx4d: cannot connect to session D-Bus\n";
         return 1;
     }
 
-    if (!bus.registerService(QStringLiteral("org.snapdragon.MX4Daemon1"))) {
+    if (!QDBusConnection::sessionBus().registerService(
+            QStringLiteral("org.snapdragon.MX4Daemon1"))) {
         QTextStream(stderr) << "mx4d: service name already registered "
                             << "(another instance running?)\n";
         return 1;
     }
 
     MX4Daemon daemon;
-    if (!bus.registerObject(QStringLiteral("/"), &daemon,
-                            QDBusConnection::ExportAllSlots |
-                            QDBusConnection::ExportAllSignals))
+    if (!QDBusConnection::sessionBus().registerObject(
+            QStringLiteral("/"), &daemon,
+            QDBusConnection::ExportAllSlots |
+            QDBusConnection::ExportAllSignals))
     {
         QTextStream(stderr) << "mx4d: failed to register D-Bus object\n";
         return 1;

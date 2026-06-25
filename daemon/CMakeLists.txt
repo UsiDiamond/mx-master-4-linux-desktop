@@ -6,10 +6,13 @@ set(DAEMON_SOURCES
     src/notifications_source.h
 )
 
-# Generate Qt D-Bus adaptor from the XML introspection file
+# Generate Qt D-Bus adaptor from the XML introspection file.
+# The include path given to the adaptor generator must point to the header
+# that defines the adaptee class (MX4Daemon).  Pass it with the full path so
+# it resolves regardless of include_directories state.
 qt6_add_dbus_adaptor(DAEMON_SOURCES
     ${CMAKE_SOURCE_DIR}/cmake/MX4DBus.xml
-    daemon.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/daemon.h
     MX4Daemon
 )
 

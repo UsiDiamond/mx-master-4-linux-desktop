@@ -1,44 +1,15 @@
-<!DOCTYPE node PUBLIC
-  "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
-  "https://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
-
-<!--
-  D-Bus interface for the MX4 daemon (org.snapdragon.MX4Daemon1).
-
-  Service name : org.snapdragon.MX4Daemon1
-  Object path  : /
-  Activation   : started as a systemd user unit (mx4d.service)
-
-  Methods
-  -------
-  PlayHaptic(waveform, intensity)
-      waveform  y (uint8) — waveform index (see libmx4hidpp/include/mx4hidpp/haptics.h)
-      intensity y (uint8) — 0-100 (motor drive strength; default 60)
-
-  SetHapticLevel(level)
-      level     y (uint8) — persistent motor level 0-100
-
-  Signals
-  -------
-  ActionRingPressed(cid)
-      cid       q (uint16) — diverted control ID of the ring press
--->
-
 <node>
   <interface name="org.snapdragon.MX4Daemon1">
 
-    <!-- Fire a haptic waveform immediately -->
     <method name="PlayHaptic">
       <arg name="waveform"  type="y" direction="in"/>
       <arg name="intensity" type="y" direction="in"/>
     </method>
 
-    <!-- Set the persistent haptic intensity level stored on the device -->
     <method name="SetHapticLevel">
       <arg name="level" type="y" direction="in"/>
     </method>
 
-    <!-- Emitted when the Actions Ring button is pressed (diverted via 0x1B04) -->
     <signal name="ActionRingPressed">
       <arg name="cid" type="q"/>
     </signal>

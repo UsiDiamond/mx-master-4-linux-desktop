@@ -20,37 +20,26 @@ NotificationsSource::NotificationsSource(QObject* parent)
 
 NotificationsSource::~NotificationsSource()
 {
-    auto& bus = QDBusConnection::sessionBus();
-    bus.disconnect(NOTIF_SERVICE, NOTIF_PATH, NOTIF_INTERFACE, NOTIFY_METHOD,
-                   this, SLOT(onNotifyMessage(QDBusMessage)));
-    bus.disconnect(NOTIF_SERVICE, NOTIF_PATH, NOTIF_INTERFACE, CLOSED_SIGNAL,
-                   this, SLOT(onClosedMessage(QDBusMessage)));
+    QDBusConnection::sessionBus().disconnect(
+        NOTIF_SERVICE, NOTIF_PATH, NOTIF_INTERFACE, NOTIFY_METHOD,
+        this, SLOT(onNotifyMessage(QDBusMessage)));
+    QDBusConnection::sessionBus().disconnect(
+        NOTIF_SERVICE, NOTIF_PATH, NOTIF_INTERFACE, CLOSED_SIGNAL,
+        this, SLOT(onClosedMessage(QDBusMessage)));
 }
 
 // ---------------------------------------------------------------------------
 
 void NotificationsSource::connectToSessionBus()
 {
-    auto& bus = QDBusConnection::sessionBus();
-
-    // Snooping Notify method calls is not directly supported by QDBusConnection's
-    // connect() (which is signal-oriented).  We register as a message filter on
-    // the QDBusConnection raw message level via addMatch, then connect to the
-    // session bus signal for NotificationClosed which IS a proper signal.
-
     // Monitor the NotificationClosed SIGNAL (standard DBus signal — works directly)
-    bus.connect(NOTIF_SERVICE, NOTIF_PATH, NOTIF_INTERFACE, CLOSED_SIGNAL,
-                this, SLOT(onClosedMessage(QDBusMessage)));
+    QDBusConnection::sessionBus().connect(
+        NOTIF_SERVICE, NOTIF_PATH, NOTIF_INTERFACE, CLOSED_SIGNAL,
+        this, SLOT(onClosedMessage(QDBusMessage)));
 
-    // For Notify METHOD calls: add a match rule so the bus delivers them to us,
-    // then handle them via the raw message filter.
-    // NOTE: full snooping requires becoming a monitor (dbus-monitor semantics),
-    // which needs org.freedesktop.DBus.Monitoring.BecomeMonitor or a policy.
-    // As a practical alternative, the daemon can register itself as the
-    // Notifications service and proxy to the real one — deferred to P2.
-    // For now, emit a stub every time NotificationClosed fires (sufficient for
-    // the ambient-haptics MVP where we react to the "notification shown" moment
-    // via the closed signal with reason=1 "expired").
+    // Note: snooping Notify *method calls* requires BecomeMonitor or proxying the
+    // Notifications service — deferred to P2.  For the ambient-haptics MVP we use
+    // the NotificationClosed signal (reason=1 "expired") as a proxy for "shown".
 }
 
 // ---------------------------------------------------------------------------
