@@ -162,9 +162,10 @@ waveform = DAMP_COLLISION
 intensity = 50
 
 [trigger]
-divert_panel = auto        ; auto/true = capture the panel so a tap and a hold
-                           ; both summon the ring (under Solaar via fire-and-
-                           ; forget writes); false = defer to Solaar
+divert_panel = auto        ; auto = capture the panel standalone (a tap and a hold
+                           ; both summon the ring); under Solaar, listen passively
+                           ; (divert the Haptic control in Solaar to use the panel).
+                           ; true = force capture; false = listen-only
 waveform = HAPPY_ALERT     ; buzz played when the ring opens
 hold_threshold = 0.4       ; seconds; a press held longer counts as a "hold"
 tap_menu =                 ; menu id a tap opens (empty = the default menu)
@@ -223,16 +224,17 @@ Integrated end-to-end on a live KDE Plasma 6 Wayland session, with a real MX Mas
 on a Logi Bolt receiver:
 
 - the daemon auto-detects the device (volatile `hidraw` node — never hardcoded),
-  reads capability mask `0x0001003C`, diverts the Actions Ring panel, and publishes
-  D-Bus;
+  reads capability mask `0x0001003C`, captures the Actions Ring panel (standalone
+  divert; under Solaar it listens for Solaar's divert instead), and publishes D-Bus;
 - `Daemon.ShowMenu("default")` (the programmatic stand-in for a panel tap) **lazily
   launches the overlay** and the ring **appears** center-screen;
 - hovering segments calls `Daemon.PlayHaptic(SUBTLE_COLLISION)` and **the mouse
   buzzes**; committing the center action plays a confirm tick (`COMPLETED` →
   capability-gated fallback to `HAPPY_ALERT`) and **launches `plasma-systemmonitor`**;
 - `Hide()` hides the ring while the overlay stays **resident** for the next `Show`;
-- on daemon `SIGTERM`, the **panel divert is restored** and the daemon-launched
-  overlay is terminated — no leftover processes.
+- on daemon `SIGTERM`, a panel **the daemon itself diverted is restored** (the
+  standalone path) and the daemon-launched overlay is terminated — no leftover
+  processes.
 
 The haptic motor itself was retired as the core risk early on:
 
@@ -254,11 +256,12 @@ python3 tools/haptic_test.py COMPLETED  # play one named waveform
   overlay appears **center-screen** (correct, not a bug). On X11/LXQt it appears **at
   the cursor**. Cursor-anchoring on Wayland would need a small KWin effect plugin
   (out of scope for v1).
-- **Physical panel-tap decode is pending the one manual step.** The divert and
-  restore are hardware-confirmed and the diverted-button parsing is unit-tested
-  against synthetic reports, but the exact press of the haptic panel is the single
-  remaining hardware verification; `ShowMenu` exercises the full overlay path without
-  it in the meantime.
+- **Physical panel tap/hold is hardware-confirmed.** A tap and a press-and-hold of
+  the haptic panel each summon the ring on real hardware (LXQt/X11, MX Master 4 over
+  a Logi Bolt receiver), with the 0.4 s threshold cleanly separating the two. Under a
+  running Solaar the divert must be owned by Solaar (set the *Haptic* control to
+  *Diverted*); the daemon then listens passively and times the tap/hold. `ShowMenu`
+  still exercises the full overlay path without a physical tap (the test seam).
 - **Native-Wayland focus changes** are watched via X11 `_NET_ACTIVE_WINDOW` (covers
   Xwayland); a pure-Wayland client may not surface there. The optional
   `mx4-focus-bridge` KWin script (installed but **not** enabled by default — see

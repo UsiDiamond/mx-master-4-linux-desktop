@@ -226,13 +226,14 @@ sequenceDiagram
 
 **Summoning the ring:**
 
-1. **Panel tap / hold (primary).** The daemon captures the Actions Ring panel
-   (`0x1B04`, CID `0x01A0`) and distinguishes a **tap** from a **press-and-hold**
-   (threshold `[trigger] hold_threshold`); each summons a configurable menu
-   (`tap_menu` / `hold_menu`, both the default ring by default). Under a running
-   Solaar the divert is sent **fire-and-forget** so it doesn't contend — a Solaar
-   *rule* can't tell a tap from a hold, which is why the daemon captures.
-   `divert_panel=false` hands the panel back to Solaar (daemon listens passively).
+1. **Panel tap / hold (primary).** Once the Actions Ring panel (`0x1B04`, CID
+   `0x01A0`) is diverted, the daemon distinguishes a **tap** from a
+   **press-and-hold** (threshold `[trigger] hold_threshold`); each summons a
+   configurable menu (`tap_menu` / `hold_menu`, both the default ring by
+   default) — a Solaar *rule* can't tell a tap from a hold, which is why the raw
+   events are needed. **Standalone** the daemon owns the divert itself; **under
+   Solaar** Solaar must own the divert (set the *Haptic* control to *Diverted*)
+   and the daemon listens passively — see §7.
 2. **`mx4-show`** — a tiny `dbus-send` wrapper (`packaging/bin/mx4-show`) calling
    `Daemon.ShowMenu`; bind it to any keyboard/mouse shortcut.
 3. **D-Bus `ShowMenu(menuId)`** — the programmatic entry the others use, and the
@@ -252,38 +253,43 @@ software, so our **request/response** probes (detection, capability read,
 * **Haptics** in coexist do **no probing**: the daemon takes the
   (firmware-stable, env-overridable) device coordinates as given and plays
   writes-only, against a preset capability mask.
-* **The trigger** is still *captured* in coexist (so a tap vs. hold can be
-  distinguished — a Solaar rule cannot) by sending the divert as a
-  **fire-and-forget write**, then reading the broadcast press/release
-  notifications. Only `divert_panel=false` hands the panel back to Solaar.
+* **The trigger** divert is a *settings* change, not a one-shot command — and on
+  this firmware it does **not** land via a fire-and-forget write while Solaar
+  holds the device (verified on hardware: the control stays `Regular`, so no
+  `divertedButtonsEvent` is emitted). So in coexist the daemon does **not** try
+  to divert; it **listens passively**. The divert must be owned by Solaar — set
+  the *Haptic* control to *Diverted* (Key/Button Diversion). The kernel then
+  broadcasts the press/release notifications to *every* reader of the hidraw
+  node, so the daemon hears them and runs its own tap/hold timer.
 
 ```mermaid
 stateDiagram-v2
     [*] --> divert_panel
-    divert_panel --> Defer: false
-    divert_panel --> Capture: auto / true
+    divert_panel --> Listen: false
+    divert_panel --> Auto: auto
+    divert_panel --> Force: true
 
-    state Capture {
+    state Auto {
         [*] --> running
         running: Solaar running?
-        running --> Confirmed: no — standalone
-        running --> FireForget: yes — coexist
+        running --> Confirmed: no — standalone capture
+        running --> Passive: yes — Solaar owns the divert
         Confirmed: divert via request/response\n(awaits the device reply)
-        FireForget: divert via fire-and-forget write\n(no contention with Solaar)
+        Passive: do NOT divert,listen passively\n(divert Haptic in Solaar to use the panel)
     }
-    state Defer {
-        [*] --> passive
-        passive: do NOT divert; listen passively\nin case Solaar diverts the panel
-    }
-    Capture --> [*]: tap / hold summon the ring
-    Defer --> [*]
+    Force: force confirmed divert\n(assumes Solaar isn't holding the device)
+    Listen: do NOT divert,listen passively\nfor whatever Solaar diverts
+
+    Auto --> [*]: tap / hold summon the ring
+    Force --> [*]
+    Listen --> [*]
 ```
 
-`true`/`false` keep their legacy bool meaning; `auto` (the default) captures the
-panel either way, picking confirmed vs. fire-and-forget per running Solaar. In
-**all** cases the daemon still does haptics + ambient mapping + overlay control,
-and the panel is **never left diverted** with nothing handling it (restored on
-shutdown).
+`true`/`false` keep their legacy bool meaning. `auto` (the default) captures the
+panel **only standalone**; under Solaar it listens passively (Solaar owns the
+divert). In **all** cases the daemon still does haptics + ambient mapping +
+overlay control, and the daemon never leaves a panel **it** diverted still
+diverted at shutdown (the standalone capture path restores on stop).
 
 ---
 

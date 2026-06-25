@@ -110,9 +110,12 @@ def test_solaar_running_no_proc(monkeypatch):
     assert solaar_running() is False
 
 
-# -- the auto decision: auto/true capture the panel, false defers to Solaar ----
-# (auto captures even under Solaar — via fire-and-forget writes — because tap vs.
-# hold needs the raw events, which a Solaar rule cannot provide.)
+# -- the auto decision ---------------------------------------------------------
+# auto captures ONLY standalone (no Solaar), where confirmed HID++ writes work.
+# Under Solaar auto listens passively: a confirmed divert broken-pipes and a
+# fire-and-forget divert does not stick on this firmware (verified on hardware),
+# so the divert must be owned by Solaar. ``true`` forces capture; ``false`` never
+# captures.
 
 
 def _daemon_with_mode(mode):
@@ -121,11 +124,11 @@ def _daemon_with_mode(mode):
     return Mx4Daemon(config=cfg)
 
 
-def test_auto_captures_when_solaar_present(monkeypatch):
+def test_auto_listens_when_solaar_present(monkeypatch):
     monkeypatch.setattr("mx4d.daemon.solaar_running", lambda: True)
     daemon = _daemon_with_mode(DIVERT_AUTO)
-    # Capture (so tap/hold work); setup() sends the divert fire-and-forget here.
-    assert daemon._resolve_divert() is True
+    # Solaar owns the divert; the daemon only listens (does not capture).
+    assert daemon._resolve_divert() is False
 
 
 def test_auto_captures_when_solaar_absent(monkeypatch):

@@ -154,14 +154,17 @@ waveform = DAMP_COLLISION
 intensity = 50
 
 [trigger]
-divert_panel = auto       ; TRI-STATE — how the Actions Ring trigger is captured:
-                          ;   auto  = capture the panel (so a tap and a hold both
-                          ;           summon the ring); under a running Solaar the
-                          ;           divert is sent fire-and-forget so it doesn't
-                          ;           contend. This is the default.
-                          ;   true  = always capture, confirmed (forced standalone).
-                          ;   false = never capture; defer to Solaar (the daemon
-                          ;           listens passively + does haptics + overlay).
+divert_panel = auto       ; TRI-STATE — who captures (diverts) the Actions Ring:
+                          ;   auto  = standalone (no Solaar): the daemon captures
+                          ;           the panel itself, so a tap and a hold both
+                          ;           summon the ring out of the box. With Solaar
+                          ;           running the daemon does NOT capture (Solaar
+                          ;           owns the divert) and listens passively — see
+                          ;           "Tap vs. hold" below. This is the default.
+                          ;   true  = force confirmed capture even under Solaar
+                          ;           (assumes Solaar isn't really holding it).
+                          ;   false = never capture; just listen passively for
+                          ;           whatever Solaar diverts (+ haptics/overlay).
                           ;           Legacy true/false values keep their meaning.
 waveform = HAPPY_ALERT    ; buzz played when the ring opens
 hold_threshold = 0.4      ; seconds; a press held longer counts as a "hold"
@@ -227,17 +230,28 @@ detection.
 
 ### Tap vs. hold, and Solaar coexistence
 
-The daemon **captures** the Actions Ring panel (`0x1B04`, CID `0x01A0`) so it can
-tell a **tap** from a **press-and-hold** — which a Solaar *rule* cannot do. A tap
-and a hold each summon a (configurable) radial menu; by default both open the
-default ring (Task Manager center + an auto-detected application launcher).
+Diverting the Actions Ring panel (`0x1B04`, CID `0x01A0`) is what lets the daemon
+tell a **tap** from a **press-and-hold** — a Solaar *rule* only sees one
+activation and cannot. A tap and a hold each summon a (configurable) radial menu;
+by default both open the default ring (Task Manager center + an auto-detected
+application launcher). The hold cut-off is `[trigger] hold_threshold` seconds.
 
-With `divert_panel = auto` (the default) the daemon captures the panel **even
-when Solaar is running**: it sends the divert as a **fire-and-forget write**,
-which lands without contending with Solaar's request/response traffic (the same
-trick the haptics use). It cheaply scans `/proc` to detect Solaar (never
-importing `logitech_receiver`, returning `False` when Solaar is absent), so the
-standalone path never depends on Solaar. Set `divert_panel = false` to hand the
-panel back to Solaar (the daemon then only listens passively, in case Solaar
-diverts it); `true` forces confirmed standalone capture. The hold cut-off is
-`[trigger] hold_threshold` seconds.
+**Only one process can own the divert.** The daemon cheaply scans `/proc` for
+Solaar (never importing `logitech_receiver`; `False` when absent), and:
+
+- **Standalone (no Solaar)** — with `divert_panel = auto` (or `true`) the daemon
+  captures the panel itself via confirmed HID++ writes. Tap/hold work out of the
+  box; nothing else is needed.
+- **With Solaar running** — Solaar holds the receiver, so a confirmed divert
+  broken-pipes and a fire-and-forget divert does **not** stick on this firmware
+  (verified on hardware). Under Solaar the daemon therefore does **not** divert;
+  it **listens passively** for the diverted events. To use the panel, divert the
+  **Haptic** control in Solaar once — *Solaar → your mouse → Key/Button Diversion
+  → Haptic → Diverted* — which also disables Logitech's native ring on that panel
+  (this one replaces it). The kernel broadcasts the HID++ notification to every
+  reader of the hidraw node, so the daemon hears the events Solaar's divert
+  produces and runs its own tap/hold timer on them. Alternatively, stop Solaar
+  and let the daemon capture the panel standalone.
+
+In short: `auto` picks standalone-capture / Solaar-listen automatically; `false`
+forces listen-only; `true` forces confirmed capture even under Solaar.

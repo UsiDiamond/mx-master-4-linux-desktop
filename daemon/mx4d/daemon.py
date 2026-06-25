@@ -157,10 +157,11 @@ class Mx4Daemon:
 
         if self.enable_trigger:
             # Capture (divert) so we can distinguish a tap from a press-and-hold
-            # and summon the ring. In coexist mode we capture with fire-and-forget
-            # writes (confirm=False) that don't contend with Solaar's
-            # request/response traffic; when we are NOT capturing (divert_panel=
-            # false) we still listen passively in case Solaar diverts the panel.
+            # and summon the ring. We only capture standalone (no Solaar), where
+            # confirmed HID++ writes work; under Solaar (_coexist) we do NOT
+            # divert (divert=False) and instead listen passively for the events
+            # Solaar's own divert produces. ``confirm`` is therefore only ever
+            # exercised in the standalone capture path.
             self.trigger = TriggerWatcher(
                 self.device.transport,
                 self.device.reprog_index,
@@ -178,19 +179,26 @@ class Mx4Daemon:
         self._build_sources()
 
     def _resolve_divert(self) -> bool:
-        """Whether to capture (divert) the Actions Ring panel ourselves.
+        """Whether the daemon itself captures (diverts) the Actions Ring panel.
 
-        * ``true`` / ``auto`` -> capture the panel so we can detect a tap vs. a
-          press-and-hold and summon the ring. Under a running Solaar (``auto``)
-          we still capture, but the (un)divert goes out as a fire-and-forget
-          write (see :class:`TriggerWatcher` ``confirm``) so it never contends
-          with Solaar's request/response traffic.
-        * ``false`` -> never capture; defer entirely to Solaar (its rule fires
-          ``ShowMenu``). The daemon still does haptics + ambient + overlay.
+        Diverting the panel is what turns a tap and a press-and-hold into the
+        raw press/release events the daemon times — a Solaar *rule* only sees a
+        single activation and cannot tell a tap from a hold.
 
-        Tap/hold discrimination needs the raw press/release events, which a
-        Solaar *rule* cannot provide — hence ``auto`` captures rather than
-        defers. Set ``false`` to hand the panel back to Solaar.
+        * ``false`` -> never capture. The daemon listens passively (so it still
+          reacts when *another* process — e.g. Solaar — diverts the panel) and
+          provides haptics + ambient + overlay only.
+        * ``auto`` (the default):
+            - **no Solaar running** -> capture with confirmed HID++ writes; a
+              tap and a hold work out of the box (the standalone path).
+            - **Solaar running** -> do NOT capture. Solaar owns the receiver, so
+              a confirmed divert would get a broken pipe and a fire-and-forget
+              divert does not stick on this firmware (verified on hardware). The
+              daemon listens passively instead; to use the panel, divert the
+              "Haptic" control in Solaar once (Key/Button Diversion -> Haptic ->
+              Diverted), or stop Solaar to let the daemon capture it standalone.
+        * ``true`` -> force confirmed capture even under Solaar (assumes Solaar
+          is not really holding the device; otherwise the divert broken-pipes).
         """
         mode = self.config.divert_panel
         if mode == DIVERT_FALSE:
@@ -201,11 +209,13 @@ class Mx4Daemon:
             return False
         if mode == DIVERT_AUTO and solaar_running():
             logger.info(
-                "Solaar detected -> capturing the Actions Ring panel via "
-                "fire-and-forget writes (coexist; tap and hold summon the ring)"
+                "Solaar detected -> not capturing the Actions Ring panel (Solaar "
+                "owns the divert). Listening passively; to use the panel, divert "
+                "the 'Haptic' control in Solaar (Key/Button Diversion -> Haptic "
+                "-> Diverted), or stop Solaar to capture it standalone"
             )
-        else:
-            logger.info("capturing the Actions Ring panel for tap/hold (standalone)")
+            return False
+        logger.info("capturing the Actions Ring panel for tap/hold (standalone)")
         return True
 
     def _build_sources(self) -> None:
