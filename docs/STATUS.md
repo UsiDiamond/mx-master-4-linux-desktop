@@ -18,6 +18,24 @@ and Actions Ring panel restored). Proven on real hw / round-tripped against both
 | **Phase 3 — integration + packaging** | **DONE** — daemon→overlay wiring (`ShowMenu(s)->b` + trigger-press path, lazy overlay launch, bounded async name-wait, all off the GLib mainloop); `[overlay] command` + `[radial] default_menu` config keys; `packaging/` (install.sh/uninstall.sh idempotent, `mx4-overlay.service` + `mx4desktop.service` user units, `70-mx-master-4.rules` uaccess udev). Proven live on Plasma 6 Wayland: ShowMenu→lazy-launch→ring appears (screenshot)→hover PlayHaptic buzzes→commit launches plasma-systemmonitor→Hide resident→SIGTERM restores panel divert, no leftover procs. 47 daemon unit tests green |
 | **Phase 4 — config GUI + polish** | **DONE** — portable Qt6/QML settings window (`config-ui/`, `mx4-config`, no KF6; Plasma 6 + LXQt) editing the shared INI (configparser-compatible writer, preserves unknown keys, round-trip proven against BOTH daemon `config.py` and overlay `MenuConfig`); live waveform preview + firmware capability-mask marking via `Daemon.GetCapabilities()->u`. Polish: `Overlay.Commit(s)->b` / `Activate(i)->b` (scriptable Wayland e2e), daemon `FocusChanged(s)->b` + `mx4-focus-bridge` KWin script (installed NOT enabled) for native-Wayland focus. `install.sh`/`uninstall.sh` updated |
 
+## Solaar-first integration (chosen direction, 2026-06-24)
+
+User decision: **make it primarily work with Solaar, with a self-sufficient fallback.**
+Principle (user): *keep each path working on its own — the standalone build must never hard-
+depend on Solaar or anything else; Solaar-first is purely additive/opt-in.*
+
+- **Solaar-first** (when Solaar runs): Solaar owns the device + diverts the Actions Ring
+  panel; a Solaar **rule** (Key `Haptic` pressed → `Execute` `dbus-send … Daemon.ShowMenu`)
+  pops the overlay. The daemon runs with `[trigger] divert_panel = false` so it does NOT
+  fight Solaar — it still provides the overlay, haptics, and ambient→haptic mapping.
+- **Fallback / default**: with no Solaar, the daemon diverts + captures the panel itself
+  (unchanged). Default config keeps `divert_panel = true` so standalone works out of the box.
+- **Shipped now** (no code change — uses the existing `divert_panel` flag): `packaging/solaar/`
+  = `setup-solaar.sh` (idempotent; `--install-rule`, `--revert`), `mx4-rules.yaml`, `README.md`.
+- **Next (workflow):** make the daemon **auto-detect** a running Solaar and flip
+  `divert_panel` itself (no manual setup), and optionally route haptics through Solaar's
+  `feature_request` when Solaar holds the device. Standalone stays the zero-dependency default.
+
 ## Firmware capability finding (important, real)
 
 This MX Master 4 unit's HAPTIC (`0x19B0`) capability mask (fn `0x00`) = **`0x0001003C`**.
