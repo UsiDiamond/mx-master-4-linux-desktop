@@ -3,7 +3,8 @@
 Project: bring the MX Master 4 **Actions Ring** + **native haptics** to Linux on
 **KDE Plasma 6** and **LXQt**. Private repo under the UsiDiamond GitHub account.
 
-Last updated: **2026-06-24** (Phases 1 & 2 complete + committed; Phase 3 integration next).
+Last updated: **2026-06-24** (Phases 1, 2 & 3 complete; Phase 3 integration +
+packaging proven end-to-end on real hardware. Phase 4 = config GUI/KCM next).
 
 ## Where things stand
 
@@ -13,7 +14,7 @@ Last updated: **2026-06-24** (Phases 1 & 2 complete + committed; Phase 3 integra
 | Device identified (real hw) | **Done** — MX Master 4, `046d:B042`, HID++ 4.5, Bolt rx, device index 2. NOTE: hidraw node number is volatile across reboots/reconnects (seen as `hidraw11` then `hidraw7`); the daemon auto-detects, so don't rely on a fixed node |
 | **Phase 1 — daemon** (`daemon/`, Python) | **DONE + committed** (`9a72aa1`). Standalone raw-HID++, no Solaar dep. Verified on hardware: selftest buzzes; `notify-send`→haptic; D-Bus `PlayHaptic`/`SetLevel`; trigger divert+restore clean; 36 unit tests pass |
 | **Phase 2 — overlay** (`overlay/`, C++/Qt6) | **DONE + committed** (`640422d`). Builds clean vs Qt6 6.11 + LayerShellQt; `--demo` renders the ring on the live Plasma 6 Wayland session (screenshot-verified) + X11 cursor path |
-| **Phase 3 — integration + packaging** | **NEXT** (see below) |
+| **Phase 3 — integration + packaging** | **DONE** — daemon→overlay wiring (`ShowMenu(s)->b` + trigger-press path, lazy overlay launch, bounded async name-wait, all off the GLib mainloop); `[overlay] command` + `[radial] default_menu` config keys; `packaging/` (install.sh/uninstall.sh idempotent, `mx4-overlay.service` + `mx4desktop.service` user units, `70-mx-master-4.rules` uaccess udev). Proven live on Plasma 6 Wayland: ShowMenu→lazy-launch→ring appears (screenshot)→hover PlayHaptic buzzes→commit launches plasma-systemmonitor→Hide resident→SIGTERM restores panel divert, no leftover procs. 47 daemon unit tests green |
 | Config UI / KCM | Not started (Phase 4) |
 
 ## Firmware capability finding (important, real)
@@ -29,29 +30,29 @@ that fires haptics MUST check the mask, not assume the full 16-waveform table.
 
 | Process | Bus name | Object path | Interface / members |
 |---|---|---|---|
-| Daemon | `dev.usidiamond.mx4` | `/dev/usidiamond/mx4` | `dev.usidiamond.mx4.Daemon`: `PlayHaptic(s)->b`, `SetLevel(i)->b`; signals `TriggerPressed()`, `TriggerReleased()` |
+| Daemon | `dev.usidiamond.mx4` | `/dev/usidiamond/mx4` | `dev.usidiamond.mx4.Daemon`: `PlayHaptic(s)->b`, `SetLevel(i)->b`, `ShowMenu(s)->b`; signals `TriggerPressed()`, `TriggerReleased()`, `DeviceLost()` |
 | Overlay | `dev.usidiamond.mx4.Overlay` | `/dev/usidiamond/mx4/Overlay` | `dev.usidiamond.mx4.Overlay`: `Show(s menuId)`, `Hide()`; signal `ActionChosen(s)` |
 
 (Distinct bus names so daemon + overlay co-run.) Overlay calls `Daemon.PlayHaptic` on
 hover/commit (graceful no-op if daemon absent). In `--demo` the overlay does not register
 its service (stays standalone).
 
-## Next steps — Phase 3 (integration + packaging) — RESUME HERE
+## Next steps — Phase 4 (config UI + polish) — RESUME HERE
 
-1. **Wire daemon → overlay**: on `TriggerPressed` (Actions Ring panel), the daemon ensures
-   the overlay is running and calls `Overlay.Show(menuId)`. Lifecycle decision: run the
-   overlay as a second always-on (hidden) systemd user service, shown on demand.
-2. **Packaging**: top-level installer (install.sh or CMake superproject) — daemon (venv or
-   `~/.local`), overlay binary, **two systemd user units** (`mx4desktop.service` daemon +
-   `mx4-overlay.service` overlay), a **udev rule** granting hidraw access (robust beyond the
-   session ACL), and a default config.
-3. **End-to-end test**: daemon `ShowMenu` path → overlay shows → select center → launches
-   the task manager (`plasma-systemmonitor`), with haptic ticks. (Physical panel tap remains
-   the one manual verification — `parse_pressed_cids` is unit-tested against synthetic
-   `divertedButtonsEvent` reports; divert/restore is hardware-confirmed.)
-4. **Phase 4 (later)**: config GUI — a portable Qt/QML settings window (Plasma + LXQt) and/or
-   a Plasma KCM, editing `~/.config/mx4desktop/config.ini`. Plus the native-Wayland focus
-   KWin-script bridge.
+Phases 1–3 are done and proven on hardware (see table above). What remains:
+
+1. **Config GUI** — a portable Qt6/QML settings window (works on Plasma 6 **and** LXQt)
+   editing `~/.config/mx4desktop/config.ini`: ambient sources (enable/waveform/intensity),
+   the radial menu segments, trigger, and haptic level. Live-preview a waveform by calling
+   `Daemon.PlayHaptic`. Optionally a thin Plasma **KCM** wrapper over the same widget.
+2. **Native-Wayland focus** — a small KWin script/effect bridging `activeWindow` changes to
+   the daemon (today focus only surfaces via Xwayland `_NET_ACTIVE_WINDOW`).
+3. **Physical panel tap** — the one un-automated check: tap the Actions Ring panel and
+   confirm `parse_pressed_cids` decodes CID `0x01A0` from a real `divertedButtonsEvent`
+   (unit-tested against synthetic reports; divert/restore is hardware-confirmed).
+4. **Nice-to-have** — a scriptable `Overlay.Commit(s)` D-Bus method for fully-automated
+   Wayland e2e; richer default menu actions; cursor-anchored Wayland overlay via a C++ KWin
+   effect plugin (Kando pattern).
 
 ## Gotchas already discovered (don't relearn)
 
@@ -70,4 +71,5 @@ its service (stays standalone).
 ## Local checkout
 
 `/home/magus/GitHub/mx-master-4-desktop`. Remote `UsiDiamond/mx-master-4-desktop` (private).
-Commits: `0e2e565` scaffold, `640422d` overlay, `9a72aa1` daemon.
+Commits: `0e2e565` scaffold, `640422d` overlay, `9a72aa1` daemon, `a588e29` docs,
+Phase 3 integration + packaging next.

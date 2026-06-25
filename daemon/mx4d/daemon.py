@@ -28,6 +28,7 @@ from typing import Optional
 from .config import Mx4Config, load_config
 from .device import MX4Device, find_mx_master_4
 from .haptics import HapticEngine
+from .overlay import OverlayController
 from .sources import (
     KIND_NOTIFICATION,
     Event,
@@ -72,6 +73,7 @@ class Mx4Daemon:
         self.trigger: Optional[TriggerWatcher] = None
         self.sources: list[Source] = []
         self._dbus_service = None
+        self._overlay: Optional[OverlayController] = None
         self._mainloop = None
         self._shutdown_done = False
 
@@ -235,10 +237,15 @@ class Mx4Daemon:
 
     # -- trigger ---------------------------------------------------------
     def _on_trigger_press(self, cid: int) -> None:
-        """Handle an Actions-Ring press: log, buzz, emit D-Bus signal.
+        """Handle an Actions-Ring press: log, buzz, raise overlay, emit signal.
 
-        The buzz is dispatched to the device-I/O worker so this callback (which
-        runs on the HID reader thread) never blocks on a haptic write.
+        This callback runs on the HID *reader* thread, NOT the GLib/dbus
+        mainloop thread. dbus-python and the OverlayController's GLib-timeout
+        machinery expect to be touched only from the mainloop thread, so we
+        marshal the overlay-show + the D-Bus signal onto the mainloop via
+        ``GLib.idle_add`` rather than calling them inline here. The buzz is
+        dispatched to the (thread-safe) device-I/O worker, so this callback
+        never blocks on a haptic write either.
         """
         logger.info("menu requested (Actions Ring CID 0x%04X)", cid)
         if self.haptics is not None:
@@ -246,8 +253,37 @@ class Mx4Daemon:
                 self._io_queue.put_nowait(("force_play", self.config.trigger_waveform))
             except queue.Full:
                 logger.debug("io queue full; dropping trigger buzz")
+        # Marshal overlay-show + signal onto the mainloop thread (dbus-python
+        # and the OverlayController's GLib work must run single-threaded there).
+        from gi.repository import GLib
+
+        GLib.idle_add(self._show_menu_and_signal)
+
+    def _show_menu_and_signal(self) -> bool:
+        """Raise the overlay and emit ``TriggerPressed`` (runs on the mainloop).
+
+        Scheduled via ``GLib.idle_add`` from the HID reader thread so all
+        OverlayController D-Bus / GLib-timeout work stays on the mainloop thread.
+        Returns ``False`` so the idle source fires exactly once.
+        """
+        # Raise the radial overlay (lazily launching it if needed).
+        self.show_menu()
         if self._dbus_service is not None:
             self._dbus_service.TriggerPressed()
+        return False
+
+    def show_menu(self, menu_id: Optional[str] = None) -> bool:
+        """Raise the radial overlay for ``menu_id`` (async; never blocks).
+
+        Shared by the Actions-Ring trigger path and the ``ShowMenu`` D-Bus
+        method, so integration is testable without a physical panel tap. When
+        ``menu_id`` is empty/None the configured ``[radial] default_menu`` is
+        used. Returns whether the show request was dispatched.
+        """
+        if self._overlay is None:
+            logger.warning("overlay controller unavailable; cannot show menu")
+            return False
+        return self._overlay.show_menu(menu_id)
 
     def _on_trigger_release(self, cid: int) -> None:
         """Handle an Actions-Ring release: emit D-Bus signal."""
@@ -319,6 +355,13 @@ class Mx4Daemon:
             name = dbus.service.BusName(DBUS_BUS_NAME, bus)
             service_cls = _make_dbus_service_class()
             self._dbus_service = service_cls(self, bus, name)
+            # Overlay control shares this connection (its async Show/Hide calls
+            # and the bounded name-wait poll run on the same mainloop).
+            self._overlay = OverlayController(
+                bus,
+                overlay_command=self.config.overlay_command,
+                default_menu=self.config.radial_default_menu,
+            )
             logger.info("D-Bus service published at %s", DBUS_BUS_NAME)
         except Exception:  # noqa: BLE001 - D-Bus is optional, daemon still useful
             logger.exception("failed to publish D-Bus service; continuing without it")
@@ -358,6 +401,13 @@ class Mx4Daemon:
             self._io_thread.join(timeout=2.0)
             self._io_thread = None
 
+        # 3a. Terminate a lazily-launched overlay (a user-started one is left).
+        if self._overlay is not None:
+            try:
+                self._overlay.stop()
+            except Exception:  # noqa: BLE001
+                logger.debug("error stopping overlay", exc_info=True)
+
         # 3. Stop ambient sources (the dbus monitor teardown lives here).
         for src in self.sources:
             try:
@@ -390,10 +440,21 @@ def _make_dbus_service_class():
 
         @dbus.service.method(DBUS_INTERFACE, in_signature="s", out_signature="b")
         def PlayHaptic(self, waveform):  # noqa: N802 - D-Bus method name
-            """Play a named/index waveform on demand (e.g. overlay tick)."""
+            """Play a named/index waveform on demand (e.g. overlay tick).
+
+            The blocking HID++ write is dispatched to the device-I/O worker so
+            this D-Bus call never stalls the shared bus dispatch thread (the
+            overlay hammers this on every hover tick). Returns whether the
+            request was accepted/queued; the overlay treats it as
+            fire-and-forget anyway.
+            """
             if self._daemon.haptics is None:
                 return False
-            return bool(self._daemon.haptics.play(str(waveform), force=True))
+            try:
+                self._daemon._io_queue.put_nowait(("force_play", str(waveform)))
+                return True
+            except Exception:  # noqa: BLE001
+                return False
 
         @dbus.service.method(DBUS_INTERFACE, in_signature="i", out_signature="b")
         def SetLevel(self, level):  # noqa: N802
@@ -411,6 +472,18 @@ def _make_dbus_service_class():
                 return True
             except Exception:  # noqa: BLE001
                 return False
+
+        @dbus.service.method(DBUS_INTERFACE, in_signature="s", out_signature="b")
+        def ShowMenu(self, menu_id):  # noqa: N802 - D-Bus method name
+            """Raise the radial overlay for ``menu_id`` (programmatic trigger).
+
+            Performs exactly what an Actions-Ring press does for the overlay
+            (ensure the overlay is running, then ``Overlay.Show(menuId)``), so
+            integration is testable without a physical panel tap. An empty
+            ``menu_id`` uses the configured ``[radial] default_menu``. Returns
+            whether the show request was dispatched. Non-blocking.
+            """
+            return bool(self._daemon.show_menu(str(menu_id)))
 
         @dbus.service.signal(DBUS_INTERFACE, signature="")
         def TriggerPressed(self):  # noqa: N802

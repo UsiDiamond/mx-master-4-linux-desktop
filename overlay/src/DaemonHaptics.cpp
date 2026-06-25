@@ -112,7 +112,12 @@ void DaemonHaptics::tick()
 
 void DaemonHaptics::confirm()
 {
-    play(QStringLiteral("COMPLETED"), /*debounced=*/false);
+    // HAPPY_ALERT (0x0F) IS in the observed firmware capability mask
+    // (0x0001003C) and reads as a positive "committed" thump. COMPLETED is NOT
+    // in that mask and would only survive via the daemon's fallback, so we send
+    // the supported waveform directly. (Cancel uses DAMP_STATE_CHANGE, also in
+    // the mask.)
+    play(QStringLiteral("HAPPY_ALERT"), /*debounced=*/false);
 }
 
 void DaemonHaptics::cancelBuzz()

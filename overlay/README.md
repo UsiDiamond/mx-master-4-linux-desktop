@@ -68,10 +68,11 @@ The overlay **calls** the daemon for haptics (no-op if absent):
 | interface | `dev.usidiamond.mx4.Daemon` |
 | method | `PlayHaptic(s waveform)` |
 
-Waveforms used (all real firmware waveforms — see `docs/RESEARCH.md`):
-`SUBTLE_COLLISION` on segment-hover change, `COMPLETED` on commit,
-`DAMP_STATE_CHANGE` on cancel. Hover ticks are debounced (~40 ms) so the motor
-is never machine-gunned. Daemon presence is tracked via a `QDBusServiceWatcher`,
+Waveforms used (all in the observed firmware capability mask `0x0001003C`, so
+they play directly without relying on the daemon's fallback — see
+`docs/RESEARCH.md`): `SUBTLE_COLLISION` on segment-hover change, `HAPPY_ALERT`
+on commit, `DAMP_STATE_CHANGE` on cancel. Hover ticks are debounced (~40 ms) so
+the motor is never machine-gunned. Daemon presence is tracked via a `QDBusServiceWatcher`,
 so the hot path never blocks on a synchronous bus probe.
 
 Trigger a show by hand:

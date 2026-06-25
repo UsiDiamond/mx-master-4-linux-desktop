@@ -64,13 +64,16 @@ QString MenuConfig::configPath()
 
 QStringList MenuConfig::detectTaskManager()
 {
-    // Ordered preference: Plasma -> LXQt -> generic -> terminal fallback.
+    // Ordered preference: Plasma -> LXQt -> generic -> terminal fallback. This
+    // MUST match the daemon's config.py TASK_MANAGER_CANDIDATES order so both
+    // processes pick the same center action: plasma-systemmonitor -> qps ->
+    // lxtask -> gnome-system-monitor -> ksysguard (deprecated, last) -> htop.
     static const QVector<QStringList> candidates = {
         {QStringLiteral("plasma-systemmonitor")},
-        {QStringLiteral("ksysguard")},
         {QStringLiteral("qps")},
         {QStringLiteral("lxtask")},
         {QStringLiteral("gnome-system-monitor")},
+        {QStringLiteral("ksysguard")},
         {QStringLiteral("xterm"), QStringLiteral("-e"), QStringLiteral("htop")},
     };
     for (const QStringList &argv : candidates) {

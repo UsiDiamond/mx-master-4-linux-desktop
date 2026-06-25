@@ -100,14 +100,26 @@ the diverted panel is always restored on stop.
 
 | Member | Type | Signature | Purpose |
 |---|---|---|---|
-| `PlayHaptic` | method | `s -> b` | Play a waveform by name or index (e.g. overlay tick). Returns whether a packet was written. |
-| `SetLevel` | method | `i -> b` | Set the global haptic level (0..100). |
+| `PlayHaptic` | method | `s -> b` | Play a waveform by name or index (e.g. overlay tick). The blocking HID++ write is dispatched to the device-I/O worker; returns whether the request was accepted/queued. |
+| `SetLevel` | method | `i -> b` | Set the global haptic level (0..100). Dispatched to the device-I/O worker; returns whether the request was accepted/queued. |
+| `ShowMenu` | method | `s -> b` | Raise the radial overlay for the given menu id (empty → `[radial] default_menu`). Does exactly what an Actions-Ring press does for the overlay, so it is testable without a physical panel tap. Non-blocking. |
 | `TriggerPressed` | signal | — | Emitted when the Actions Ring panel is pressed. |
 | `TriggerReleased` | signal | — | Emitted when the Actions Ring panel is released. |
+| `DeviceLost` | signal | — | Emitted when the MX Master 4 disappears (unplugged / powered off); the daemon then shuts down cleanly. |
 
-The future radial overlay subscribes to `TriggerPressed` to show its menu and
-calls `PlayHaptic` for segment ticks. For now, a trigger press logs
-"menu requested", plays the configured trigger waveform, and emits the signal.
+On an Actions-Ring press (or a `ShowMenu` call) the daemon ensures the overlay
+is running — **lazily launching** it (config `[overlay] command`) if its bus name
+is absent, then waiting briefly and non-blockingly for the name to appear — and
+calls `Overlay.Show(menuId)`. The overlay calls back to `PlayHaptic` for segment
+ticks. All of this is dispatched off the GLib mainloop, so a slow/idle device or
+a slow overlay start never stalls the daemon.
+
+Trigger the overlay without a panel tap:
+
+```bash
+dbus-send --session --print-reply --dest=dev.usidiamond.mx4 \
+  /dev/usidiamond/mx4 dev.usidiamond.mx4.Daemon.ShowMenu string:default
+```
 
 Try it:
 
@@ -149,6 +161,12 @@ waveform = HAPPY_ALERT    ; played on a trigger press (placeholder)
 center/command = ...      ; auto-detected task manager (see below)
 center/label   = Task Manager
 center/icon    = utilities-system-monitor
+default_menu   = default  ; menu id passed to Overlay.Show() on a trigger press
+
+[overlay]
+command = mx4-radial      ; how the daemon lazily launches the overlay process;
+                          ; a bare name is resolved on PATH, an absolute path is
+                          ; accepted (for dev/testing against a build directory)
 ```
 
 The `[radial] center/command` defaults to the auto-detected system monitor:

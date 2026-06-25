@@ -85,6 +85,9 @@ class Mx4Config:
     trigger_waveform: str
     # [radial]
     radial_center_action: str
+    radial_default_menu: str
+    # [overlay]
+    overlay_command: str
     # raw parser kept so unknown keys survive a save().
     _parser: configparser.ConfigParser
 
@@ -114,6 +117,9 @@ class Mx4Config:
         _set(p, "radial", "center/command", self.radial_center_action)
         _set(p, "radial", "center/label", "Task Manager")
         _set(p, "radial", "center/icon", "utilities-system-monitor")
+        _set(p, "radial", "default_menu", self.radial_default_menu)
+        # [overlay]: how the daemon lazily launches the radial overlay process.
+        _set(p, "overlay", "command", self.overlay_command)
 
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as fh:
@@ -170,6 +176,15 @@ def _default_parser() -> configparser.ConfigParser:
         "center/command": detect_task_manager(),
         "center/label": "Task Manager",
         "center/icon": "utilities-system-monitor",
+        # Menu id the daemon passes to Overlay.Show() on a trigger press; the
+        # overlay maps "default" -> [radial], any other id -> [radial:<id>].
+        "default_menu": "default",
+    }
+    # How the daemon launches the overlay process when its bus name is absent.
+    # Default is the bare binary name (resolved on PATH, e.g. installed to
+    # ~/.local/bin/mx4-radial); an absolute path is accepted for dev/testing.
+    p["overlay"] = {
+        "command": "mx4-radial",
     }
     return p
 
@@ -218,6 +233,9 @@ def _build(parser: configparser.ConfigParser) -> Mx4Config:
     if not center:
         center = detect_task_manager()
 
+    default_menu = get("radial", "default_menu", fallback="").strip() or "default"
+    overlay_command = get("overlay", "command", fallback="").strip() or "mx4-radial"
+
     return Mx4Config(
         ambient_enabled=getbool("ambient", "enabled"),
         quiet_hours_enabled=getbool("ambient", "quiet_hours"),
@@ -226,6 +244,8 @@ def _build(parser: configparser.ConfigParser) -> Mx4Config:
         divert_panel=getbool("trigger", "divert_panel"),
         trigger_waveform=get("trigger", "waveform"),
         radial_center_action=center,
+        radial_default_menu=default_menu,
+        overlay_command=overlay_command,
         _parser=parser,
     )
 

@@ -30,6 +30,33 @@ def test_defaults():
     assert c.source(KIND_SOUND).waveform == "DAMP_COLLISION"
     # radial center action is non-empty (auto-detected).
     assert c.radial_center_action
+    # Phase-3 integration keys default sanely.
+    assert c.radial_default_menu == "default"
+    assert c.overlay_command == "mx4-radial"
+
+
+def test_overlay_and_default_menu_roundtrip(tmp_path, monkeypatch):
+    # Custom [overlay] command + [radial] default_menu survive load and a save.
+    path = tmp_path / "config.ini"
+    path.write_text(
+        "[overlay]\ncommand = /opt/mx4/mx4-radial\n"
+        "[radial]\ndefault_menu = work\n",
+        encoding="utf-8",
+    )
+    c = load_config(str(path))
+    assert c.overlay_command == "/opt/mx4/mx4-radial"
+    assert c.radial_default_menu == "work"
+    c.save(str(path))
+    reloaded = load_config(str(path))
+    assert reloaded.overlay_command == "/opt/mx4/mx4-radial"
+    assert reloaded.radial_default_menu == "work"
+
+
+def test_overlay_command_falls_back_to_default_when_blank(tmp_path):
+    path = tmp_path / "config.ini"
+    path.write_text("[overlay]\ncommand =\n", encoding="utf-8")
+    c = load_config(str(path))
+    assert c.overlay_command == "mx4-radial"
 
 
 def test_detect_task_manager_prefers_present_binary(monkeypatch):
