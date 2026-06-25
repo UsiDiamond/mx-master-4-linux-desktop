@@ -1,131 +1,372 @@
 # Architecture
 
-Three cooperating pieces over a shared HID++ transport, plus thin per-desktop shims.
-Designed to run on **KDE Plasma 6** (Wayland + X11) and **LXQt** (X11), with a
-DE-agnostic core.
+How `mx-master-4-desktop` is built, as shipped. Three cooperating pieces over the
+session D-Bus, sharing one INI file, on top of a single raw-`hidraw` HID++ link.
+Runs on **KDE Plasma 6** (Wayland + X11) and **LXQt** (X11); the device + haptics
+core is desktop-environment agnostic.
 
+For the device-level reverse-engineering this stands on (HID++ features, the
+haptic packet, the trigger control), see [RESEARCH.md](RESEARCH.md). For the
+coding conventions, see [CODE_STANDARDS.md](CODE_STANDARDS.md).
+
+---
+
+## 1. Components at a glance
+
+```mermaid
+flowchart TB
+    dev["MX Master 4<br/>(Bolt receiver / BT)<br/>/dev/hidrawN"]
+
+    subgraph daemon["mx4d — daemon (Python)"]
+        direction TB
+        hid["HidppTransport<br/>raw HID++ 2.0"]
+        eng["HapticEngine<br/>capability-gated plays"]
+        trig["TriggerWatcher<br/>divert Actions Ring"]
+        src["ambient sources<br/>notifications · focus · sounds"]
+        ovc["OverlayController<br/>lazy-launch + Show"]
+        io["device-I/O worker thread"]
+    end
+
+    overlay["mx4-radial — overlay (C++/Qt6 + QML)<br/>draws the ring · launches actions"]
+    configui["mx4-config — settings GUI (C++/Qt6 + QML)<br/>edits the shared INI · live preview"]
+    kwin["mx4-focus-bridge<br/>(KWin script, Plasma-Wayland only)"]
+    ini[("~/.config/mx4desktop/config.ini<br/>shared INI")]
+
+    dev <-->|"HID++ read/write"| hid
+    src --> io --> eng --> hid
+    trig --> hid
+    trig -->|"panel press"| ovc
+    ovc -->|"D-Bus dev.usidiamond.mx4.Overlay<br/>Show(menuId)"| overlay
+    overlay -->|"D-Bus dev.usidiamond.mx4<br/>PlayHaptic (hover/commit)"| eng
+    configui -->|"PlayHaptic · SetLevel · GetCapabilities"| eng
+    kwin -->|"FocusChanged(app)"| src
+    daemon -. reads .-> ini
+    overlay -. reads .-> ini
+    configui -. reads/writes .-> ini
 ```
-                         ┌──────────────────────────────────────┐
-                         │            mx4 daemon                 │
-                         │  (systemd user service, one process)  │
-                         │                                       │
-   /dev/hidrawN  ───────▶│  HidppTransport                       │
-   (Bolt rx / BT)        │   • resolve device + feature indices  │
-                         │   • play_waveform(idx)  fn 0x40       │
-                         │   • set_level(0..100)   fn 0x20       │
-                         │   • divert Haptic ctrl  (0x1B04)      │
-                         │   • read diverted-control events ─────┼──┐ trigger
-                         │                                       │  │
-                         │  HapticEngine ◀── EventBus ◀── sources │  │
-                         │                                       │  │
-                         └───────┬───────────────────────┬───────┘  │
-                                 │ D-Bus (own iface)      │          │
-                  show/pick      ▼                        ▼          ▼
-                         ┌───────────────┐        event sources   RadialController
-                         │ Radial overlay│        (see below)     decides: show menu
-                         │ Qt6/QML       │
-                         │ • LayerShellQt│  Plasma/Wayland → center-screen
-                         │ • frameless X │  LXQt/X11       → at cursor
-                         └───────────────┘
-                                 ▲
-                                 │ reads config
-                         ┌───────────────┐
-                         │ Config (KConfig/INI) │  ← KCM (Plasma) or Qt window (LXQt)
-                         └───────────────┘
-```
 
-## Components
+Two processes, **distinct D-Bus names**, so they co-run and each gracefully
+no-ops if the other is absent. The daemon owns the HID link and all policy; the
+overlay is a separate GUI process so a UI crash never drops the device
+connection (and so it can hold a Wayland surface the daemon should not).
 
-### 1. `mx4d` — the daemon (core, DE-agnostic)
-A long-lived process, shipped as a **systemd user service**
-(`WantedBy=graphical-session.target`). Owns the HID++ connection and all policy.
+| Piece | Language | Binary | Responsibility |
+|---|---|---|---|
+| **Daemon** | Python (system interpreter, no venv) | `mx4d` (`python -m mx4d`) | device, haptics, trigger, ambient→haptic, overlay control, D-Bus |
+| **Overlay** | C++/Qt6 + QML + LayerShellQt | `mx4-radial` | draw the radial ring; launch the chosen action (argv, no shell) |
+| **Config GUI** | C++/Qt6 + QML (no KF6) | `mx4-config` | edit the shared INI; live waveform preview; capability marking |
+| **Focus bridge** | KWin script (JS) | `mx4-focus-bridge` | forward pure-Wayland focus changes to the daemon (opt-in, Plasma only) |
 
-- **HidppTransport** — opens the receiver/mouse `hidraw` node, runs the HID++ 2.0
-  request/response + notification loop. On start it resolves the device index and the
-  HAPTIC (`0x19B0`) / REPROG-CONTROLS (`0x1B04`) feature indices via the ROOT feature
-  (`0x0000`) — no hardcoded indices. Reference packet format proven in
-  `tools/haptic_test.py`.
-- **HapticEngine** — the only thing that talks haptics. `play(waveform)` and
-  `setLevel(0..100)`. Debounces/rate-limits so bursts of events don't machine-gun the
-  motor. Respects a global enable + per-source intensity.
-- **RadialController** — when the trigger fires, raises the overlay over D-Bus and
-  feeds it the configured menu; ticks the haptic motor as the highlighted segment
-  changes and on commit.
-- **EventBus + sources** — pluggable producers of "something happened" events that map
-  to haptic waveforms (see Ambient Haptics below).
+---
 
-### 2. Radial overlay — `mx4-radial` (C++/Qt6 + QML)
-A separate GUI process the daemon shows/hides over D-Bus (kept separate so a UI crash
-never drops the HID connection, and so it can hold a Wayland surface the daemon
-shouldn't).
+## 2. Module map
 
-- **Plasma/Wayland:** frameless transparent **LayerShellQt** surface, `LayerOverlay`,
-  window type `toolbar`, emptied input region except the menu hit-area, **center-screen**
-  (Wayland can't place at the cursor). Optional cursor-anchoring later via a small C++
-  KWin effect plugin (Kando pattern).
-- **LXQt/X11 (and Plasma/X11):** plain frameless `Qt::Tool` window placed **at the
-  cursor** (X11 lets us query the pointer) — the nicer UX, for free.
-- Rendering: QML `Shape`/`PathArc` segments, snap-to-angle selection, segment
-  highlight + scale. Each hovered segment requests a haptic tick from the daemon.
+**Daemon — `daemon/mx4d/`**
 
-### 3. Config — `mx4ctl` / KCM
-One config file (KConfig INI under `~/.config/mx4desktop/`). Two front-ends sharing it:
-a Plasma **KCM** (System Settings page) and a plain Qt settings window for LXQt.
-
-## Trigger model (how the menu is summoned)
-
-1. **MX4 haptic panel (primary)** — daemon diverts the `Haptic` control via `0x1B04`;
-   the panel's press arrives as an HID++ diverted-control notification → show menu.
-   (Exact CID to be confirmed on hardware — see STATUS.md.)
-2. **Global hotkey (fallback / non-MX4)** — KGlobalAccel on Plasma, GlobalShortcuts
-   portal elsewhere. Always available so the feature degrades gracefully.
-
-## Radial menu defaults
-
-The default menu's **primary (center / first) action is the Task Manager / system
-monitor**, auto-detected per environment:
-
-| Environment | Launch |
+| Module | Role |
 |---|---|
-| KDE Plasma | `plasma-systemmonitor` (fallback `ksysguard`) |
-| LXQt | `qps` (fallback `lxtask`) |
-| Generic | `gnome-system-monitor`, then `xterm -e htop` |
+| `hidpp.py` | the only code that touches the wire: HID++ 2.0 transport, request/response matching, background reader, feature resolution via ROOT |
+| `device.py` | locate the MX Master 4 (scan receivers, match name) + the Solaar-coexist bind path; resolve feature indices |
+| `haptics.py` | `HapticEngine` — capability gating, level get/set, the proven fire-and-forget play packet, debounce |
+| `trigger.py` | `TriggerWatcher` — divert the Actions Ring panel (`0x1B04`), decode press/release, **always restore** on stop |
+| `daemon.py` | wires it all together under a GLib mainloop; the device-I/O worker; the session D-Bus object |
+| `overlay.py` | `OverlayController` — lazy-launch the overlay and call `Show`, never blocking the mainloop |
+| `config.py` | typed view over the INI; defaults; task-manager auto-detection; configparser-compatible save |
+| `solaar.py` | dependency-light `/proc` scan: is a long-lived Solaar background app running? |
+| `sources/` | ambient event producers: `notifications.py`, `focus.py`, `sounds.py` |
 
-Other default slots (all user-editable): app launcher, switch virtual desktop,
-play/pause media, lock screen, custom command. A press-and-release on the trigger with
-no movement invokes the center action (Task Manager) directly.
+**Overlay — `overlay/src/`**
 
-## Ambient haptics (event → waveform)
+| Unit | Role |
+|---|---|
+| `main.cpp` | app wiring; per-`Show` recreates the `QQuickView` so the Wayland surface role is fresh |
+| `OverlayService` | the `dev.usidiamond.mx4.Overlay` D-Bus surface (`Show`/`Hide`/`Commit`/`Activate`) |
+| `RadialController` | QML-facing model: segments, highlight from pointer angle / keyboard, commit → launch |
+| `MenuConfig` | load the `[radial]` menu from the shared INI (or a built-in default) |
+| `PlatformWindow` | backend setup: LayerShellQt (Wayland), at-cursor `Qt::Tool` (X11), or fallback |
+| `DaemonHaptics` | thin QtDBus client that asks the daemon to buzz on hover/commit |
 
-The HapticEngine subscribes to an **EventBus** fed by pluggable sources. Each source
-maps to a configurable waveform + intensity; everything is debounced and respects a
-master enable and a quiet-hours option.
+**Config GUI — `config-ui/src/`**: `ConfigModel` (read/write the shared INI, preserving unknown keys), `DaemonBridge` (live preview + capability mask), `main.cpp`.
 
-| Source | Mechanism (DE-agnostic where possible) | Default waveform |
+---
+
+## 3. D-Bus contract
+
+Two services on the session bus. **Changing one side requires changing the
+other** — these signatures are the integration contract.
+
+| Process | Bus name | Object | Members |
+|---|---|---|---|
+| Daemon | `dev.usidiamond.mx4` | `/dev/usidiamond/mx4` | `PlayHaptic(s)→b`, `SetLevel(i)→b`, `ShowMenu(s)→b`, `GetCapabilities()→u`, `FocusChanged(s)→b`; signals `TriggerPressed()`, `TriggerReleased()`, `DeviceLost()` |
+| Overlay | `dev.usidiamond.mx4.Overlay` | `/dev/usidiamond/mx4/Overlay` | `Show(s menuId)`, `Hide()`, `Commit(s actionId)→b`, `Activate(i index)→b`; signal `ActionChosen(s)` |
+
+`ShowMenu` exposes the exact panel-press path over D-Bus, so the full
+show → hover → commit → launch chain is testable **without a physical tap**
+(`Commit`/`Activate` likewise drive the overlay programmatically on Wayland).
+
+---
+
+## 4. Threading model
+
+The daemon is a single process with several threads. The invariant:
+**blocking HID I/O never runs on the mainloop, and D-Bus/overlay work never runs
+off it.**
+
+```mermaid
+flowchart LR
+    subgraph mainloop["GLib mainloop thread"]
+        dbus["D-Bus methods<br/>ShowMenu / PlayHaptic / SetLevel"]
+        ovl["OverlayController<br/>(launch + bounded name-wait)"]
+        sig["signal handlers · watchdog"]
+    end
+    subgraph reader["hidpp-reader thread"]
+        rd["read reports<br/>→ replies / notifications"]
+        tcb["trigger press/release callback"]
+    end
+    subgraph srcthreads["source threads"]
+        ns["notifications (private bus monitor)"]
+        fs["focus (Xlib)"]
+        ss["sounds (pactl/pw-mon)"]
+    end
+    subgraph worker["mx4-io worker thread"]
+        q["bounded queue (64)"]
+        w["the ONLY haptic writer<br/>set_level + play"]
+    end
+
+    ns & fs & ss -->|"on_event: cheap gating + debounce"| q
+    tcb -->|"force_play (buzz)"| q
+    tcb -->|"GLib.idle_add"| ovl
+    dbus -->|"enqueue"| q
+    q --> w --> rd
+```
+
+- **`mx4-io` worker** owns *every* haptic write. A notification storm is
+  debounced **before** it reaches the queue, so a burst issues zero HID
+  round-trips; the queue is bounded so sustained storms coalesce by dropping.
+- **`hidpp-reader`** classifies each report as a reply (routed to the waiting
+  caller by `(device, feature, function, software-id)`) or an unsolicited
+  notification (dispatched to callbacks). The trigger callback runs here and
+  marshals overlay/D-Bus work onto the mainloop with `GLib.idle_add`.
+- A **watchdog** on the mainloop notices if the reader dies (device unplugged)
+  and shuts down cleanly instead of lingering as a zombie.
+
+---
+
+## 5. Ambient event → haptic
+
+```mermaid
+sequenceDiagram
+    participant S as source thread
+    participant D as Mx4Daemon.on_event<br/>(source thread)
+    participant Q as io queue
+    participant W as mx4-io worker
+    participant H as HidppTransport
+    participant M as the motor
+
+    S->>D: Event(kind, meta)
+    Note over D: master enable? quiet hours?<br/>per-source enabled?
+    D->>D: should_play() — debounce here
+    alt debounced / disabled
+        D-->>S: drop (zero HID I/O)
+    else play
+        Note over D: critical notification →<br/>SHARP_COLLISION
+        D->>Q: put_nowait(play, waveform, intensity)
+        Q->>W: dequeue
+        W->>H: set_level (cached, skipped if unchanged / coexist)
+        W->>H: write play packet (fire-and-forget)
+        H->>M: buzz
+    end
+```
+
+Sources and their mechanisms (all degrade gracefully — a missing dependency
+disables just that source):
+
+| Source | Mechanism | Default waveform |
 |---|---|---|
-| **Desktop notifications / alerts** | Monitor `org.freedesktop.Notifications` `Notify` on the session bus (works on Plasma **and** LXQt). Urgency 2 (critical) → stronger waveform. | `HAPPY_ALERT`; critical → `ANGRY_ALERT` |
-| **Application focus change** | X11/LXQt: watch `_NET_ACTIVE_WINDOW` on the root window via XCB. Plasma/Wayland: tiny KWin script bridging `activeWindow` changes to our D-Bus iface (no portable Wayland signal exists). | `SUBTLE_COLLISION` |
-| **System sounds** | Tap PipeWire/PulseAudio for new short-lived playback streams (event sounds). Stretch goal; v1 can fold "sounds" into the notifications source. | `KNOCK` |
+| **Notifications** | passive monitor of `org.freedesktop.Notifications.Notify` on a **private** bus connection (or a `dbus-monitor` subprocess fallback); urgency 2 → stronger | `HAPPY_ALERT` → critical `SHARP_COLLISION` |
+| **Focus change** | X11 `_NET_ACTIVE_WINDOW` via Xlib (covers Xwayland); pure-Wayland via the optional KWin `FocusChanged` bridge | `SUBTLE_COLLISION` |
+| **System sounds** | `pactl subscribe` / `pw-mon` new playback stream (coarse; **off by default**) | `DAMP_COLLISION` |
 
-This satisfies the requirement: **haptics respond to system noises, desktop alerts,
-and application-change events.** v1 lands notifications + focus-change (both
-portable); the PipeWire sound tap follows.
+> The notifications monitor MUST use a **private** D-Bus connection.
+> `BecomeMonitor` turns a whole connection receive-only; doing it on the shared
+> session bus would silently destroy the daemon's own `dev.usidiamond.mx4`
+> service name.
 
-## Tech stack decision
+---
 
-- **Language/toolkit:** C++/Qt6 + QML for daemon and overlay (only stack strong on
-  *both* raw HID/HID++ and a real Plasma-6 Wayland layer-shell overlay; LayerShellQt
-  has no Python binding). hidapi (hidraw backend) for HID I/O. D-Bus (Qt DBus) between
-  daemon, overlay, and KWin shim.
-- **Rapid-prototype escape hatch:** a Python build of the daemon (reusing Solaar's
-  `logitech_receiver` + `python-evdev`) is acceptable for early iteration, but the
-  **overlay stays C++/Qt6** regardless. `tools/haptic_test.py` is the seed of the
-  Python path and the reference for the HID++ packet format.
-- **Build/packaging:** CMake + extra-cmake-modules; systemd user unit; Plasma
-  `metadata.json` for the KCM/KWin script; distro package or Flatpak for distribution.
+## 6. Summoning the ring (trigger → overlay → action)
+
+```mermaid
+sequenceDiagram
+    participant U as user
+    participant T as TriggerWatcher / ShowMenu
+    participant O as OverlayController
+    participant V as mx4-radial overlay
+    participant H as HapticEngine
+
+    U->>T: tap Actions Ring panel (or D-Bus ShowMenu)
+    T->>H: force_play(trigger waveform) — confirm tick
+    T->>O: show_menu(menuId)   [marshalled onto mainloop]
+    alt overlay already on the bus
+        O->>V: Overlay.Show(menuId)
+    else overlay absent
+        O->>V: launch process ([overlay] command)
+        O->>O: bounded GLib poll for the bus name (≤5 s)
+        O->>V: Overlay.Show(menuId) once it appears
+    end
+    V->>V: load [radial] menu, draw the ring (center = Task Manager)
+    loop pointer moves between segments
+        V->>H: PlayHaptic(SUBTLE_COLLISION) — debounced tick
+    end
+    U->>V: release on a segment (or center)
+    V->>H: PlayHaptic(HAPPY_ALERT) — confirm
+    V->>V: QProcess::startDetached(argv) — launch action, no shell
+    V-->>O: ActionChosen(id) then ring dismisses, overlay stays resident
+```
+
+**Three ways the ring is summoned**, in priority order:
+
+1. **Solaar rule** (when Solaar runs) — a Solaar rule maps the `Haptic` panel to
+   `Execute dbus-send … Daemon.ShowMenu`. Solaar owns the device; the daemon does
+   **not** divert (no contention). Set up with `packaging/solaar/`.
+2. **`mx4-show`** — a tiny `dbus-send` wrapper (`packaging/bin/mx4-show`) you can
+   bind to any shortcut; calls `Daemon.ShowMenu`.
+3. **Standalone divert** — with no Solaar, the daemon diverts the Actions Ring
+   panel itself via `0x1B04` and decodes the press.
+
+---
+
+## 7. Solaar coexistence (the `divert_panel` tri-state)
+
+The project is **Solaar-first with a self-sufficient standalone fallback**: the
+standalone path never hard-depends on Solaar; Solaar integration is purely
+additive. When Solaar runs it owns the receiver as the registered HID++
+software, so our **request/response** probes (detection, capability read,
+`set_level`) get a broken pipe — but fire-and-forget **writes** (the haptic play
+packet) still land, and passive notification reads still work. So "coexist mode"
+does **no probing**: it takes the (firmware-stable, env-overridable) device
+coordinates as given and operates writes-only.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Resolve
+    Resolve --> ForceStandalone: divert_panel = true
+    Resolve --> CheckSolaar: divert_panel = auto
+    Resolve --> NeverDivert: divert_panel = false
+
+    CheckSolaar --> Defer: Solaar running
+    CheckSolaar --> Standalone: no Solaar
+
+    ForceStandalone --> Standalone
+    NeverDivert --> Defer
+
+    state Standalone {
+        [*] --> probe
+        probe: full HID++ probe + read capabilities
+        probe --> divert: divert the panel ourselves
+    }
+    state Defer {
+        [*] --> coexist
+        coexist: writes-only (preset mask)\nSolaar owns settings + trigger
+    }
+    Standalone --> [*]
+    Defer --> [*]
+```
+
+`true`/`false` keep their legacy bool meaning exactly; `auto` (the default)
+picks per running Solaar. In **all** cases the daemon still does haptics +
+ambient mapping + overlay control — only the *trigger diversion* is gated, and
+the panel is **never left diverted** with nothing handling it.
+
+---
+
+## 8. Configuration — one shared INI
+
+`~/.config/mx4desktop/config.ini` (honoring `XDG_CONFIG_HOME`) is read by all
+three programs. It is a **contract**: the daemon parses it with Python
+`configparser`; the overlay and config GUI use Qt `QSettings`. Because
+`QSettings`'s INI *writer* escapes section names and uses `\` subgroup
+separators (which `configparser` cannot read), the config GUI **hand-emits** a
+configparser-compatible INI (literal `:` in section names, literal `/` in keys)
+and **preserves unknown keys** on save.
+
+```ini
+[ambient]
+enabled = true          ; master switch for ambient haptics
+quiet_hours = false
+debounce_interval = 0.12
+
+[source:notification]   ; + [source:focus], [source:sound]
+enabled = true
+waveform = HAPPY_ALERT  ; critical urgency upgrades to SHARP_COLLISION
+intensity = 70
+
+[trigger]
+divert_panel = auto     ; auto (defer to Solaar if running) | true | false
+waveform = HAPPY_ALERT  ; played on a trigger press
+
+[radial]
+center/command = plasma-systemmonitor  ; auto-detected Task Manager (no shell)
+center/label = Task Manager
+center/icon = utilities-system-monitor
+default_menu = default
+count = 6               ; + 1/id, 1/label, 1/icon, 1/command … per segment
+
+[overlay]
+command = mx4-radial    ; how the daemon lazily launches the overlay
+```
+
+The radial **center action defaults to the auto-detected Task Manager**:
+`plasma-systemmonitor` → `qps` → `lxtask` → `gnome-system-monitor` →
+`ksysguard` → `xterm -e htop`, first present on `PATH`. The daemon, overlay and
+config GUI use the **same ordered candidate list** so all three agree.
+
+---
+
+## 9. Per-desktop behaviour
+
+| Concern | Plasma 6 Wayland | Plasma 6 / LXQt X11 |
+|---|---|---|
+| Overlay surface | LayerShellQt `LayerOverlay`, keyboard `OnDemand`, **center-screen** (Wayland can't read the cursor or place absolutely) | frameless `Qt::Tool`, top-most, **at the cursor** |
+| Focus events | Xwayland via `_NET_ACTIVE_WINDOW`; pure-Wayland via opt-in `mx4-focus-bridge` | native `_NET_ACTIVE_WINDOW` (complete) |
+| Init | systemd user units *or* XDG autostart | XDG autostart (no `systemctl --user` on OpenRC/runit/s6) |
+
+The installer is **init-agnostic** (XDG autostart primary; systemd user units
+additionally on systemd) and installs the KWin focus-bridge **only on Plasma**
+(never enabled automatically).
+
+---
+
+## 10. Gotchas (hard-won; don't relearn)
+
+- **Firmware gates waveforms.** The tested unit's mask is `0x0001003C` — only
+  `SHARP/DAMP/SUBTLE_COLLISION`, `HAPPY_ALERT`, and an undocumented `0x10`.
+  `COMPLETED`, `WAVE`, `JINGLE`, … are silently ignored. Always gate + fall back.
+- **`hidraw` node numbers are volatile** across reboots/re-pairing — never
+  hardcode them; the daemon auto-detects (or reads the node from Solaar in
+  coexist mode). `MX4_HIDRAW` / `MX4_DEVICE_INDEX` override deterministically.
+- **`BecomeMonitor` on the shared bus is fatal** — it makes the connection
+  receive-only and kills the daemon's own bus name. Use a private connection.
+- **All blocking HID I/O must leave the GLib mainloop** (the device-I/O worker),
+  or notification dispatch stalls and `set_level` times out.
+- **Solaar contention is asymmetric:** request/response gets a broken pipe under
+  a running Solaar, but fire-and-forget writes and passive reads coexist fine —
+  this is exactly what coexist mode exploits.
+- **The Solaar `haptic-play` CLI is broken** (`TypeError: Unable to marshal str
+  as an array`) — irrelevant to us; we send the raw packet.
+- **Wayland overlay must be window type `toolbar`** (not `dock`) or it receives
+  no keyboard (Escape-to-dismiss breaks).
+- **Trigger-divert restore on shutdown may need a retry** — attempt 1 can time
+  out; attempt 2 succeeds, then a fire-and-forget last resort. The panel always
+  ends up non-diverted.
+
+---
 
 ## Out of scope (v1)
 
-- Driving the mouse's *internal* on-device Actions Ring (undecoded; needs Windows USB
-  capture). We render our own overlay instead.
-- Custom/arbitrary haptic waveforms (firmware exposes only 16 pre-baked + global level).
+- Driving the mouse's *internal* on-device Actions Ring (undecoded; would need a
+  Windows USB capture). We render our own overlay instead.
+- Custom/arbitrary haptic waveforms — firmware exposes only the pre-baked set
+  plus a global 0–100 level.
+- Cursor-anchoring the overlay on Wayland — needs a small C++ KWin effect plugin
+  to expose the cursor position (the Kando pattern); center-screen for now.

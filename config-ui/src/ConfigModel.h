@@ -59,8 +59,9 @@ class ConfigModel : public QObject
     Q_PROPERTY(bool quietHours READ quietHours WRITE setQuietHours NOTIFY changed)
     Q_PROPERTY(double debounceInterval READ debounceInterval WRITE setDebounceInterval NOTIFY changed)
 
-    // global haptic level (0..100); persisted into every source intensity floor
-    // is NOT what this is — see hapticLevel docs. Kept as a convenience knob.
+    // Global haptic level (0..100). Persisted as our own [ambient] haptic_level
+    // key (the daemon ignores unknown keys) and pushable to the device live via
+    // Daemon.SetLevel. It is NOT a per-source intensity — those are separate.
     Q_PROPERTY(int hapticLevel READ hapticLevel WRITE setHapticLevel NOTIFY changed)
 
     // [trigger]

@@ -25,7 +25,7 @@ import threading
 import time
 from typing import Optional, Union
 
-from .hidpp import HidppTransport, SHORT_REPORT_ID, func_byte
+from .hidpp import SHORT_REPORT_ID, HidppTransport, func_byte
 
 logger = logging.getLogger(__name__)
 

@@ -18,7 +18,7 @@ import pytest
 # Make the package importable when running pytest from anywhere.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mx4d.hidpp import HidppTransport, SOFTWARE_ID  # noqa: E402
+from mx4d.hidpp import HidppTransport  # noqa: E402
 
 
 class FakeDevice:
@@ -77,9 +77,8 @@ class FakeDevice:
     def _handle(self, req: bytes) -> bytes | None:
         if len(req) < 4:
             return None
-        report_id, dev, findex, fb = req[0], req[1], req[2], req[3]
+        _report_id, dev, findex, fb = req[0], req[1], req[2], req[3]
         fn = fb >> 4
-        swid = fb & 0x0F
         length = 20  # reply as a long report
 
         def pad(payload: bytes) -> bytes:
@@ -92,7 +91,11 @@ class FakeDevice:
                 idx = self.FEATURE_TABLE.get(fid, 0x00)
                 return pad(bytes([0x11, dev, 0x00, fb, idx]))
             if fn == 0x01:  # getProtocolVersion (echo ping marker at byte6)
-                return pad(bytes([0x11, dev, 0x00, fb, 0x04, 0x05, req[6] if len(req) > 6 else 0]))
+                return pad(
+                    bytes(
+                        [0x11, dev, 0x00, fb, 0x04, 0x05, req[6] if len(req) > 6 else 0]
+                    )
+                )
 
         # DEVICE NAME (index 3)
         if findex == 0x03:
@@ -109,7 +112,9 @@ class FakeDevice:
                 mask = self.HAPTIC_CAP_MASK.to_bytes(4, "big")
                 return pad(bytes([0x11, dev, findex, fb]) + mask)
             if fn == 0x01:  # get level/state: [0]=enabled, [1]=level
-                return pad(bytes([0x11, dev, findex, fb, 0x01, self.HAPTIC_LEVEL, 0x00]))
+                return pad(
+                    bytes([0x11, dev, findex, fb, 0x01, self.HAPTIC_LEVEL, 0x00])
+                )
             if fn == 0x02:  # set level (ack echo)
                 return pad(bytes([0x11, dev, findex, fb]) + req[4:6])
             if fn == 0x04:  # play (fire and forget; ack anyway)

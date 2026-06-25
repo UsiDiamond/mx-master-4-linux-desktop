@@ -29,7 +29,7 @@ else()
 endif()
 
 # --- Qt6 ------------------------------------------------------------------
-find_package(Qt6 6.5 REQUIRED COMPONENTS
+find_package(Qt6 6.4 REQUIRED COMPONENTS
     Core
     Gui
     Qml

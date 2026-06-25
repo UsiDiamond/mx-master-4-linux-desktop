@@ -29,8 +29,7 @@ import os
 import select
 import threading
 import time
-from collections import deque
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -330,7 +329,8 @@ class HidppTransport:
         """Route ``report`` to a waiting caller or to notification callbacks."""
         if len(report) < 4:
             return
-        report_id, device_index, feature_index, fb = report[0], report[1], report[2], report[3]
+        report_id, device_index = report[0], report[1]
+        feature_index, fb = report[2], report[3]
         software_id = fb & 0x0F
 
         # A HID++ error report (10 .. ff ..) echoes feature index 0xFF rather

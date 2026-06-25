@@ -51,7 +51,7 @@ The overlay **exports**:
 | bus name | `dev.usidiamond.mx4.Overlay` |
 | object | `/dev/usidiamond/mx4/Overlay` |
 | interface | `dev.usidiamond.mx4.Overlay` |
-| methods | `Show(s menuId)`, `Hide()` |
+| methods | `Show(s menuId)`, `Hide()`, `Commit(s actionId)->b`, `Activate(i index)->b` |
 | signal | `ActionChosen(s actionId)` |
 
 The overlay owns its **own** name `dev.usidiamond.mx4.Overlay`, *distinct* from
@@ -106,8 +106,9 @@ count=6
 ; ... up to <count>
 ```
 
-Task-manager auto-detection order: `plasma-systemmonitor` → `ksysguard` →
-`qps` → `lxtask` → `gnome-system-monitor` → `xterm -e htop` (first on `PATH`).
+Task-manager auto-detection order: `plasma-systemmonitor` → `qps` → `lxtask` →
+`gnome-system-monitor` → `ksysguard` → `xterm -e htop` (first on `PATH`). The
+daemon and config GUI use the same ordered list, so all three agree.
 
 Action launching uses `QProcess` with an **argv list** (quote-aware split) —
 there is **no shell**, so menu labels/commands cannot inject.

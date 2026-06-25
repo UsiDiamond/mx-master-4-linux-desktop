@@ -1,0 +1,30 @@
+# Ruff configuration for the mx4d daemon.
+#
+# Formalises the readability + security bar the daemon is written to (see
+# docs/CODE_STANDARDS.md). Run from daemon/:
+#
+#     ruff check          # lint mx4d/ + tests/
+#     ruff format --diff  # check formatting (88-col, ruff/black style)
+#
+# `ruff check` is green against the current tree.
+
+line-length = 88
+target-version = "py311"
+
+[lint]
+# E/W  pycodestyle      F   pyflakes (dead code, undefined names)
+# I    import ordering  N   pep8-naming
+# B    bugbear (likely bugs)   BLE  blind-except   S  bandit (security)
+select = ["E", "F", "W", "I", "N", "B", "BLE", "S"]
+
+# Categorical false-positives for this codebase's deliberate, safe patterns.
+# Each is documented so the security signal stays meaningful for genuinely new
+# issues (the same spirit as flagging a finding "correct-by-design, not a bug").
+ignore = [
+    "S101",  # assert: used only as type-narrowing invariants; daemon never runs under -O
+    "S110",  # try/except/pass: deliberate best-effort teardown in stop()/shutdown paths
+    "S603",  # subprocess: we ALWAYS pass an argv list (never shell=True) — the secure
+             # pattern; S603 fires on every list-form call regardless of safety
+    "S607",  # partial executable path: intentional PATH lookup (solaar, dbus-monitor, pactl)
+    "N818",  # exception name: HidppTimeout is a clear domain name (no -Error suffix needed)
+]

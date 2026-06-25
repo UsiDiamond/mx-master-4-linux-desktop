@@ -1,0 +1,38 @@
+# Code style for the C++/Qt6 overlay (overlay/) and config GUI (config-ui/).
+# Matches the hand-written house style: 4-space indent, 80-col, next-line braces
+# for functions/classes/structs, attached braces for control flow, Qt-style
+# `Type *name` pointers. See docs/CODE_STANDARDS.md.
+#
+#   clang-format --dry-run -Werror overlay/src/*.{h,cpp} config-ui/src/*.{h,cpp}
+#   clang-format -i           overlay/src/*.{h,cpp} config-ui/src/*.{h,cpp}
+---
+Language: Cpp
+BasedOnStyle: WebKit
+ColumnLimit: 80
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+PointerAlignment: Right
+NamespaceIndentation: None
+SpaceBeforeParens: ControlStatements
+Cpp11BracedListStyle: true
+SpacesBeforeTrailingComments: 1
+AlignTrailingComments:
+  Kind: Always
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: false
+SortIncludes: CaseInsensitive
+IncludeBlocks: Preserve
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterClass: true
+  AfterStruct: true
+  AfterUnion: true
+  AfterEnum: false
+  AfterFunction: true
+  AfterNamespace: false
+  AfterControlStatement: Never
+  BeforeElse: false
+  BeforeCatch: false
+  SplitEmptyFunction: false

@@ -19,7 +19,6 @@ from mx4d.config import (
 from mx4d.daemon import Mx4Daemon
 from mx4d.solaar import _is_solaar_background_cmdline, solaar_running
 
-
 # -- cmdline classification --------------------------------------------------
 
 
@@ -41,9 +40,7 @@ def test_env_wrapped_solaar_matches():
     # these still count as the background app.
     assert _is_solaar_background_cmdline(["/usr/bin/env", "solaar"])
     assert _is_solaar_background_cmdline(["env", "python3", "-m", "solaar"])
-    assert _is_solaar_background_cmdline(
-        ["/usr/bin/env", "FOO=bar", "solaar"]
-    )
+    assert _is_solaar_background_cmdline(["/usr/bin/env", "FOO=bar", "solaar"])
     assert _is_solaar_background_cmdline(
         ["env", "-u", "SOMEVAR", "python3", "/path/to/solaar"]
     )
@@ -57,9 +54,7 @@ def test_cli_invocations_do_not_match():
     # Transient `solaar config`/`solaar show` CLI calls do NOT run rules.
     assert not _is_solaar_background_cmdline(["solaar", "config", "dev", "x"])
     assert not _is_solaar_background_cmdline(["solaar", "show"])
-    assert not _is_solaar_background_cmdline(
-        ["python3", "-m", "solaar", "config", "x"]
-    )
+    assert not _is_solaar_background_cmdline(["python3", "-m", "solaar", "config", "x"])
 
 
 def test_our_own_daemon_does_not_match():
@@ -75,9 +70,7 @@ def test_our_own_daemon_does_not_match():
 
 
 def _fake_procs(monkeypatch, table):
-    monkeypatch.setattr(
-        solaarmod, "_iter_proc_cmdlines", lambda: iter(table)
-    )
+    monkeypatch.setattr(solaarmod, "_iter_proc_cmdlines", lambda: iter(table))
 
 
 def test_solaar_running_present(monkeypatch):

@@ -25,9 +25,7 @@ from . import KIND_NOTIFICATION, EmitCallback, Event, Source
 
 logger = logging.getLogger(__name__)
 
-_NOTIFY_MATCH = (
-    "type=method_call,interface=org.freedesktop.Notifications,member=Notify"
-)
+_NOTIFY_MATCH = "type=method_call,interface=org.freedesktop.Notifications,member=Notify"
 
 
 class NotificationsSource(Source):
@@ -103,12 +101,8 @@ class NotificationsSource(Source):
             return False
         try:
             bus = dbus.SessionBus(private=True)
-            dbus_obj = bus.get_object(
-                "org.freedesktop.DBus", "/org/freedesktop/DBus"
-            )
-            monitoring = dbus.Interface(
-                dbus_obj, "org.freedesktop.DBus.Monitoring"
-            )
+            dbus_obj = bus.get_object("org.freedesktop.DBus", "/org/freedesktop/DBus")
+            monitoring = dbus.Interface(dbus_obj, "org.freedesktop.DBus.Monitoring")
             # flags must be 0 per the spec.
             monitoring.BecomeMonitor([_NOTIFY_MATCH], dbus.UInt32(0))
             bus.add_message_filter(self._on_message)
@@ -149,9 +143,7 @@ class NotificationsSource(Source):
             except (TypeError, ValueError):
                 urgency = 1
         if self._emit is not None:
-            self._emit(
-                Event(KIND_NOTIFICATION, {"app": app_name, "urgency": urgency})
-            )
+            self._emit(Event(KIND_NOTIFICATION, {"app": app_name, "urgency": urgency}))
 
     # -- dbus-monitor subprocess fallback -------------------------------
     def _start_dbus_monitor_fallback(self) -> bool:

@@ -14,7 +14,7 @@ Built on plain **QtQuick Controls 2** — **no KF6 dependency** — so it runs o
 |---|---|
 | `[ambient]` | `enabled`, `quiet_hours` (`true`/`false`), `debounce_interval` (float), `haptic_level` (0..100, GUI-owned) |
 | `[source:notification]` / `[source:focus]` / `[source:sound]` | `enabled`, `waveform` (name), `intensity` (0..100) |
-| `[trigger]` | `divert_panel` (`true`/`false`), `waveform` (name) |
+| `[trigger]` | `divert_panel` (tri-state `auto`/`true`/`false`), `waveform` (name) |
 | `[radial]` | `center/command` (argv, quote-aware, **no shell**), `center/label`, `center/icon`, `default_menu`, `count`, and per-segment `<n>/id`, `<n>/label`, `<n>/icon`, `<n>/command` |
 | `[overlay]` | `command` (how the daemon lazily launches the overlay) |
 

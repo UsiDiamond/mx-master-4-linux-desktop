@@ -98,12 +98,12 @@ def test_should_play_debounce(transport, fake_device):
     # so the daemon can drop a coalesced burst before issuing any HID round-trip.
     engine = HapticEngine(transport, 0x0B, min_interval=0.5)
     before = len(fake_device.requests)
-    assert engine.should_play() is True   # first event passes
+    assert engine.should_play() is True  # first event passes
     assert engine.should_play() is False  # immediate second is debounced
     # No requests were sent to the device by the gate itself.
     assert len(fake_device.requests) == before
     time.sleep(0.55)
-    assert engine.should_play() is True   # window elapsed -> passes again
+    assert engine.should_play() is True  # window elapsed -> passes again
 
 
 def test_get_set_level(transport):

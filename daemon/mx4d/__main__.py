@@ -18,7 +18,7 @@ import sys
 from .config import load_config
 from .daemon import Mx4Daemon
 from .device import find_mx_master_4
-from .haptics import HapticEngine, WAVEFORM_NAMES
+from .haptics import WAVEFORM_NAMES, HapticEngine
 
 
 def _configure_logging(verbose: bool) -> None:
@@ -46,9 +46,7 @@ def run_selftest() -> int:
         mask = engine.read_capabilities()
         print(f"capability mask: 0x{mask:08X}")
         supported = [
-            WAVEFORM_NAMES.get(i, f"0x{i:02X}")
-            for i in range(32)
-            if (1 << i) & mask
+            WAVEFORM_NAMES.get(i, f"0x{i:02X}") for i in range(32) if (1 << i) & mask
         ]
         print(f"supported waveforms: {', '.join(supported)}")
         print(f"haptic enabled: {engine.is_enabled()}")
@@ -73,7 +71,9 @@ def run_selftest() -> int:
 
 def main(argv: list[str] | None = None) -> int:
     """Parse args and dispatch to selftest or the daemon run loop."""
-    parser = argparse.ArgumentParser(prog="mx4d", description="MX Master 4 Linux daemon")
+    parser = argparse.ArgumentParser(
+        prog="mx4d", description="MX Master 4 Linux daemon"
+    )
     parser.add_argument(
         "--selftest",
         action="store_true",

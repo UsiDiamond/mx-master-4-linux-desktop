@@ -63,9 +63,9 @@ def test_press_release_cycle(transport, fake_device):
 
     watcher.stop()
     # stop() must have sent a non-diverted setCidReporting (flags w/o divert bit).
-    last_set = [
-        r for r in fake_device.requests if r[2] == 0x0D and (r[3] >> 4) == 0x3
-    ][-1]
+    last_set = [r for r in fake_device.requests if r[2] == 0x0D and (r[3] >> 4) == 0x3][
+        -1
+    ]
     assert not (last_set[6] & (1 << 1))  # divert bit cleared on restore
 
 

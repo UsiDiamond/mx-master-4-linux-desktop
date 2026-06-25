@@ -7,8 +7,9 @@ A dependency-light, raw-``hidraw`` HID++ 2.0 daemon that:
   diverting it through REPROG CONTROLS V4 (feature ``0x1B04``),
 * maps ambient desktop events — notifications, application focus changes and
   (best-effort) system sounds — to configurable haptic waveforms,
-* exposes a small session D-Bus interface (``dev.usidiamond.mx4``) the future
-  C++/Qt6 radial overlay will drive.
+* exposes a small session D-Bus interface (``dev.usidiamond.mx4``) that drives
+  the separate C++/Qt6 radial overlay (``mx4-radial``) — lazily launching it and
+  calling ``Overlay.Show`` on an Actions-Ring press or a ``ShowMenu`` call.
 
 It deliberately does **not** import Solaar / ``logitech_receiver``: it talks to
 ``/dev/hidraw*`` directly, exactly like ``tools/haptic_test.py``. No root is

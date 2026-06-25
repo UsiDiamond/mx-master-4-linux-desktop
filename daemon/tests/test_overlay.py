@@ -52,7 +52,8 @@ def test_resolve_absolute_path_used_verbatim():
 
 def test_resolve_bare_name_uses_path(monkeypatch):
     monkeypatch.setattr(
-        overlaymod.shutil, "which",
+        overlaymod.shutil,
+        "which",
         lambda name: "/usr/bin/mx4-radial" if name == "mx4-radial" else None,
     )
     c = OverlayController(object(), overlay_command="mx4-radial")

@@ -6,15 +6,18 @@ Run via ``python -m mx4d``. It:
 * maps ambient source events to per-source haptic waveforms (honoring the
   master enable, per-source enable, debounce and a quiet-hours toggle),
 * on an Actions-Ring press logs "menu requested", plays the configured trigger
-  placeholder haptic (default ``HAPPY_ALERT`` — ``COMPLETED`` is not supported by
-  the observed MX4 firmware), and emits a D-Bus ``TriggerPressed`` signal the
-  future overlay will consume,
+  haptic (default ``HAPPY_ALERT`` — ``COMPLETED`` is not supported by the
+  observed MX4 firmware), raises the radial overlay (lazily launching it via
+  :class:`~mx4d.overlay.OverlayController`), and emits a D-Bus
+  ``TriggerPressed`` signal,
 * exposes a session D-Bus object ``dev.usidiamond.mx4`` with methods
-  ``PlayHaptic(s)`` / ``SetLevel(i)`` and signals ``TriggerPressed`` /
-  ``TriggerReleased``.
+  ``PlayHaptic(s)`` / ``SetLevel(i)`` / ``ShowMenu(s)`` / ``GetCapabilities()`` /
+  ``FocusChanged(s)`` and signals ``TriggerPressed`` / ``TriggerReleased`` /
+  ``DeviceLost``.
 
-The overlay itself is a later phase; for now the trigger just logs + buzzes +
-signals.
+All blocking HID I/O runs on a dedicated device-I/O worker thread (never on the
+GLib/dbus mainloop), and all overlay/D-Bus work is marshalled onto the mainloop
+thread, so neither side can ever stall the other.
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ from .config import DIVERT_AUTO, DIVERT_TRUE, Mx4Config, load_config
 from .device import MX4Device, find_mx_master_4
 from .haptics import HapticEngine
 from .overlay import OverlayController
+from .solaar import solaar_running
 from .sources import (
     KIND_FOCUS,
     KIND_NOTIFICATION,
@@ -38,7 +42,6 @@ from .sources import (
 from .sources.focus import FocusSource
 from .sources.notifications import NotificationsSource
 from .sources.sounds import SoundsSource
-from .solaar import solaar_running
 from .trigger import TriggerWatcher
 
 logger = logging.getLogger(__name__)
@@ -427,7 +430,9 @@ class Mx4Daemon:
 
         GLib.timeout_add_seconds(2, _watchdog)
 
-        logger.info("mx4 daemon running (device=%s)", self.device.name if self.device else "?")
+        logger.info(
+            "mx4 daemon running (device=%s)", self.device.name if self.device else "?"
+        )
         try:
             self._mainloop.run()
         finally:

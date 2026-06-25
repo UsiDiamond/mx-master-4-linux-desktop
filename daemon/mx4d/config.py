@@ -277,8 +277,7 @@ def _build(parser: configparser.ConfigParser) -> Mx4Config:
 
     center_label = get("radial", "center/label", fallback="").strip() or "Task Manager"
     center_icon = (
-        get("radial", "center/icon", fallback="").strip()
-        or "utilities-system-monitor"
+        get("radial", "center/icon", fallback="").strip() or "utilities-system-monitor"
     )
     default_menu = get("radial", "default_menu", fallback="").strip() or "default"
     overlay_command = get("overlay", "command", fallback="").strip() or "mx4-radial"

@@ -112,7 +112,7 @@ void DaemonHaptics::tick()
 
 void DaemonHaptics::confirm()
 {
-    // HAPPY_ALERT (0x0F) IS in the observed firmware capability mask
+    // HAPPY_ALERT (0x05) IS in the observed firmware capability mask
     // (0x0001003C) and reads as a positive "committed" thump. COMPLETED is NOT
     // in that mask and would only survive via the daemon's fallback, so we send
     // the supported waveform directly. (Cancel uses DAMP_STATE_CHANGE, also in

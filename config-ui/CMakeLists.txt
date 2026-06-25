@@ -32,14 +32,14 @@ endif()
 # QuickControls2 gives us the Controls 2 forms; it is required for the GUI.
 # We verify it explicitly at configure time so a missing component fails loudly
 # rather than at link time.
-find_package(Qt6 6.5 REQUIRED COMPONENTS
+find_package(Qt6 6.4 REQUIRED COMPONENTS
     Core
     Gui
     Qml
     Quick
     DBus)
 
-find_package(Qt6 6.5 QUIET COMPONENTS QuickControls2)
+find_package(Qt6 6.4 QUIET COMPONENTS QuickControls2)
 if(Qt6QuickControls2_FOUND)
     message(STATUS "mx4-config: Qt6 QuickControls2 found")
 else()

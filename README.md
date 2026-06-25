@@ -9,10 +9,11 @@ Logitech ships these features only through Logi Options+ on Windows 11 and macOS
 This project reimplements them natively on Linux — no Solaar dependency, no root
 (beyond a one-time udev rule install).
 
-> Status: **working end-to-end on real hardware** (2026-06-24). The standalone
-> raw-HID++ daemon, the C++/Qt6 radial overlay, and their D-Bus integration are all
-> built, tested, and proven on a real MX Master 4 + KDE Plasma 6 Wayland session.
-> Read [docs/STATUS.md](docs/STATUS.md) first when resuming.
+> Status: **working end-to-end on real hardware.** The standalone raw-HID++
+> daemon, the C++/Qt6 radial overlay, and their D-Bus integration are all built,
+> tested, and proven on a real MX Master 4 + KDE Plasma 6 Wayland session. It also
+> **coexists with Solaar** (Solaar owns the device; we still drive haptics + the
+> ring) and stays fully self-sufficient when Solaar is absent.
 
 ## What it does
 
@@ -37,25 +38,19 @@ This project reimplements them natively on Linux — no Solaar dependency, no ro
 
 Two cooperating processes over the session D-Bus, sharing one INI config:
 
-```
-   MX Master 4                ┌──────────────────────────────┐
-   (Bolt rx / BT)             │  mx4d daemon  (Python)        │
-   /dev/hidrawN  ───HID++────▶│  • auto-detect device         │
-                              │  • native haptics (capability │
-                              │    -gated waveforms)          │
-                              │  • divert Actions Ring panel  │      D-Bus
-                              │  • ambient sources →haptics   │   dev.usidiamond.mx4
-   trigger press ───divert───▶│  • on press / ShowMenu(): ────┼──────┐  Overlay.Show()
-                              │      raise the overlay        │      │
-                              └──────────────┬────────────────┘      ▼
-                               PlayHaptic()  ▲            ┌────────────────────────┐
-                               (hover/commit)└────────────│ mx4-radial overlay     │
-                                                          │ (C++/Qt6 + LayerShell) │
-                                                          │ • draws the ring       │
-                                                          │ • ticks daemon haptics │
-                                                          │ • launches center/seg  │
-                                                          │   action (no shell)    │
-                                                          └────────────────────────┘
+```mermaid
+flowchart LR
+    dev["MX Master 4<br/>Bolt rx / BT<br/>/dev/hidrawN"]
+
+    subgraph daemon["mx4d daemon (Python)"]
+        core["auto-detect device · native haptics<br/>(capability-gated) · divert Actions Ring<br/>· ambient sources → haptics"]
+    end
+
+    overlay["mx4-radial overlay<br/>(C++/Qt6 + LayerShellQt)<br/>draws the ring · launches the<br/>chosen action (argv, no shell)"]
+
+    dev <-->|"HID++"| core
+    core -->|"D-Bus Overlay.Show(menuId)<br/>on trigger / ShowMenu"| overlay
+    overlay -->|"D-Bus PlayHaptic<br/>(hover tick / commit)"| core
 ```
 
 The daemon owns the HID connection and all policy; the overlay is a separate GUI
@@ -73,8 +68,11 @@ absent, waiting briefly and non-blockingly for the name to appear — then calls
 `Overlay.Show(menuId)`. `ShowMenu` exposes that exact path over D-Bus so the
 integration is testable without a physical panel tap.
 
-More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
-[daemon/README.md](daemon/README.md), [overlay/README.md](overlay/README.md).
+More detail — including data-flow, threading, trigger and Solaar-coexist
+**diagrams** — is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); the coding
+conventions and how they are enforced are in
+[docs/CODE_STANDARDS.md](docs/CODE_STANDARDS.md). See also
+[daemon/README.md](daemon/README.md) and [overlay/README.md](overlay/README.md).
 
 ## Install
 
@@ -164,7 +162,8 @@ waveform = DAMP_COLLISION
 intensity = 50
 
 [trigger]
-divert_panel = true        ; divert the Actions Ring panel for capture
+divert_panel = auto        ; auto = defer to Solaar if running, else capture
+                           ; ourselves; true = always capture; false = never
 waveform = HAPPY_ALERT     ; played on a trigger press
 
 [radial]
@@ -271,7 +270,8 @@ config-ui/     C++/Qt6 + QML settings GUI (mx4-config; no KF6)
 packaging/     init-agnostic install.sh/uninstall.sh, XDG autostart, systemd user
                units, udev rule, KWin focus-bridge (Plasma-only), solaar/ helper
 tools/         standalone raw-HID++ haptic smoke test
-docs/          INSTALL.md (per-distro), ARCHITECTURE.md, RESEARCH.md, STATUS.md
+docs/          INSTALL.md (per-distro), ARCHITECTURE.md (+diagrams), RESEARCH.md,
+               CODE_STANDARDS.md
 ```
 
 ## License

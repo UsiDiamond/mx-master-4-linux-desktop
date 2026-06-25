@@ -116,8 +116,9 @@ evdev (this is expected). We read that notification off the same hidraw node.
   via `0x1B04` so it works without Solaar running.
 - **Open item:** confirm the CID byte the panel emits. Run `solaar -dd`, divert the
   `Haptic` control, click the panel, and read the `diverted controls pressed: 0x…`
-  notification. Likely CID `0x1A0`/action `0x0109`, but verify on hardware. See
-  STATUS.md "Resume".
+  notification. The daemon uses CID `0x01A0` / action `0x0109`
+  (`ACTIONS_RING_CID` in `daemon/mx4d/trigger.py`); the divert + restore are
+  hardware-confirmed, the exact press decode is the one remaining manual check.
 
 > We render **our own** radial overlay (like JuhRadial / Kando) triggered by this
 > button — we do **not** try to drive the mouse's internal on-device ring (that part

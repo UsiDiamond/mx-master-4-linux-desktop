@@ -1,10 +1,10 @@
-# mx4d — MX Master 4 Linux daemon (Phase 1)
+# mx4d — MX Master 4 Linux daemon
 
 A standalone, raw-`hidraw` HID++ 2.0 daemon for the Logitech MX Master 4 on
 Linux. It drives the mouse's native haptic motor, captures the haptic "Actions
 Ring" touch panel as a software trigger, maps ambient desktop events to haptic
-waveforms, and exposes a small session D-Bus interface for the (future) C++/Qt6
-radial overlay.
+waveforms, and exposes a small session D-Bus interface that raises and drives the
+C++/Qt6 radial overlay (`mx4-radial`).
 
 It talks to `/dev/hidraw*` directly — it does **not** depend on Solaar /
 `logitech_receiver`. No root is required when the receiver's hidraw node carries
@@ -140,7 +140,7 @@ debounce_interval = 0.12  ; min seconds between plays (coalesces bursts)
 
 [source:notification]     ; desktop notifications (org.freedesktop.Notifications)
 enabled = true
-waveform = HAPPY_ALERT    ; critical-urgency notifications upgrade to ANGRY_ALERT
+waveform = HAPPY_ALERT    ; critical-urgency notifications upgrade to SHARP_COLLISION
 intensity = 70            ; haptic level (0..100) applied for this source
 
 [source:focus]            ; application focus change (X11 _NET_ACTIVE_WINDOW)
@@ -202,8 +202,9 @@ reads, so editing it affects both the daemon and the future overlay. (The legacy
 - **Idle-device wake:** an idle MX4 can be slow to answer the first request;
   auto-detection retries across a few passes. The `MX4_HIDRAW`/`MX4_DEVICE_INDEX`
   override is the fast, deterministic path.
-- The **radial overlay** itself is a later phase (C++/Qt6 + QML). This daemon
-  only logs "menu requested", buzzes, and emits the D-Bus trigger signal.
+- The **radial overlay** is a separate C++/Qt6 process (`../overlay/`). On a
+  trigger press (or `ShowMenu`) this daemon lazily launches it and calls
+  `Overlay.Show`; the overlay calls back to `PlayHaptic` for hover/commit ticks.
 
 ## Tests
 
@@ -211,7 +212,7 @@ Unit tests run against an in-memory fake hidraw (no hardware needed):
 
 ```bash
 cd daemon
-pytest -q        # 63 tests
+pytest -q        # 64 tests
 ```
 
 They cover request framing / func_byte math, response demux, getFeature parsing,

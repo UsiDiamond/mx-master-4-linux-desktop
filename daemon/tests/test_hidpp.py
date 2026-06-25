@@ -6,9 +6,8 @@ import threading
 import time
 
 from mx4d.hidpp import (
-    SHORT_REPORT_ID,
     LONG_REPORT_ID,
-    SOFTWARE_ID,
+    SHORT_REPORT_ID,
     HidppError,
     HidppTimeout,
     func_byte,
@@ -84,8 +83,10 @@ def test_stale_error_does_not_misroute(transport, fake_device):
     # error report for feature 0x7F/function 0x9 while a getFeature (ROOT 0x00,
     # function 0x00) is the one we actually issue: it must succeed normally.
     fake_device.send_notification(
-        bytes([0x10, fake_device.device_index, 0xFF, 0x7F, func_byte(0x9), 0x01]
-              + [0] * 14)
+        bytes(
+            [0x10, fake_device.device_index, 0xFF, 0x7F, func_byte(0x9), 0x01]
+            + [0] * 14
+        )
     )
     time.sleep(0.05)
     # ROOT getFeature must still resolve correctly (no spurious HidppError).

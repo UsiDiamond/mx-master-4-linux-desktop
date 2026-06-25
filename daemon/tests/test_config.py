@@ -44,8 +44,7 @@ def test_overlay_and_default_menu_roundtrip(tmp_path, monkeypatch):
     # Custom [overlay] command + [radial] default_menu survive load and a save.
     path = tmp_path / "config.ini"
     path.write_text(
-        "[overlay]\ncommand = /opt/mx4/mx4-radial\n"
-        "[radial]\ndefault_menu = work\n",
+        "[overlay]\ncommand = /opt/mx4/mx4-radial\n[radial]\ndefault_menu = work\n",
         encoding="utf-8",
     )
     c = load_config(str(path))
@@ -128,9 +127,7 @@ def test_radial_center_command_preferred_over_legacy(tmp_path):
     path = os.path.join(tmp_path, "config.ini")
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(
-            "[radial]\n"
-            "center/command = new-monitor\n"
-            "center_action = old-monitor\n"
+            "[radial]\ncenter/command = new-monitor\ncenter_action = old-monitor\n"
         )
     c = load_config(path, write_defaults=False)
     assert c.radial_center_action == "new-monitor"

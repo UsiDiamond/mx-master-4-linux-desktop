@@ -19,7 +19,7 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-from .hidpp import HidppTransport, HidppError, HidppTimeout
+from .hidpp import HidppError, HidppTimeout, HidppTransport
 
 logger = logging.getLogger(__name__)
 
@@ -251,7 +251,9 @@ def find_mx_master_4() -> MX4Device:
     # 1. Explicit override wins (with extra wake retries).
     if env_path and env_index_raw:
         try:
-            device = _try_match(env_path, int(env_index_raw, 0), attempts=OVERRIDE_ATTEMPTS)
+            device = _try_match(
+                env_path, int(env_index_raw, 0), attempts=OVERRIDE_ATTEMPTS
+            )
         except ValueError:
             device = None
         if device is not None:
@@ -267,7 +269,7 @@ def find_mx_master_4() -> MX4Device:
     #    passes: an early pass's writes can wake a device that then matches on a
     #    later pass (the cheap broken-pipe nodes keep passes inexpensive).
     nodes = list_receiver_nodes()
-    for scan_pass in range(SCAN_PASSES):
+    for _scan_pass in range(SCAN_PASSES):
         for node in nodes:
             for index in PROBE_DEVICE_INDICES:
                 device = _try_match(node, index, attempts=SCAN_ATTEMPTS)

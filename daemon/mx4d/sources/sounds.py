@@ -90,7 +90,9 @@ class SoundsSource(Source):
 
     def _spawn_reader(self, target) -> bool:
         self._stop.clear()
-        self._thread = threading.Thread(target=target, name="sounds-reader", daemon=True)
+        self._thread = threading.Thread(
+            target=target, name="sounds-reader", daemon=True
+        )
         self._thread.start()
         logger.info("sounds source: subscribed via %s", self._tool)
         return True
