@@ -175,6 +175,11 @@ log "installed ${DESKTOP_DST}"
 install -Dm755 "${SCRIPT_DIR}/bin/mx4-show" "${BIN_DIR}/mx4-show"
 log "installed ${BIN_DIR}/mx4-show"
 
+# mx4-playpause: toggle play/pause on the active MPRIS player (browser video,
+# music) without playerctl — for a radial "Play / Pause" segment or a hotkey.
+install -Dm755 "${SCRIPT_DIR}/bin/mx4-playpause" "${BIN_DIR}/mx4-playpause"
+log "installed ${BIN_DIR}/mx4-playpause"
+
 # --- 2. install the daemon as a python package (NO venv, NO pip) -------------
 step "Installing the daemon package"
 # Replace the package tree atomically-ish: clear the old copy, copy fresh, so a
