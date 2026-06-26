@@ -1,0 +1,22 @@
+# Solaar rule for the MX Master 4 Actions Ring trigger.
+#
+# Add this rule to ~/.config/solaar/rules.yaml (Solaar appends user rules there).
+# SAFEST: recreate it via Solaar's GUI Rule Editor instead of editing YAML by hand —
+# the editor guarantees the exact schema for your Solaar version. This file is a
+# reference / convenience copy; BACK UP your existing rules.yaml before merging.
+#
+# Prerequisite: the "Haptic" control must be Diverted in Solaar
+#   (Solaar: device → Key/Button Diversion → Haptic = Diverted,
+#    or: solaar config '<device>' divert-keys Haptic Diverted).
+# setup-solaar.sh does both for you.
+#
+# Condition: the diverted "Haptic" panel control is pressed.
+# Action:    ask the running mx4d daemon to show the radial menu (it lazy-launches
+#            the overlay). The daemon must be running (it also provides haptics/ambient).
+
+%YAML 1.3
+---
+- Rule:
+  - Key: [Haptic, pressed]
+  - Execute: [dbus-send, "--session", "--dest=dev.usidiamond.mx4", /dev/usidiamond/mx4, dev.usidiamond.mx4.Daemon.ShowMenu, "string:default"]
+...

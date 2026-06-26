@@ -1,0 +1,38 @@
+# Build
+/build/
+/_build/
+build/
+_build/
+.pytest_cache/
+*.o
+*.so
+*.user
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+.cache/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# Local capture / scratch (USB traces, packet dumps may contain serials)
+/captures/
+*.pcap
+*.pcapng
+scratch/
+
+# Local-only working notes / resume checkpoint — kept on disk, not published.
+# Durable engineering knowledge lives in docs/ARCHITECTURE.md instead.
+/docs/STATUS.md

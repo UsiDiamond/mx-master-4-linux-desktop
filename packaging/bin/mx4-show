@@ -1,0 +1,15 @@
+#!/bin/sh
+# mx4-show — open the MX Master 4 radial menu.
+#
+# Bind this to a GLOBAL HOTKEY or a spare mouse button in your desktop's shortcut
+# settings. Unlike diverting the haptic panel, this does NOT change any mouse
+# button's existing behaviour — it just asks the running daemon to show the ring,
+# so you keep whatever your panel/buttons already do.
+#
+#   mx4-show            # show the default menu
+#   mx4-show <menuId>   # show a named menu ([radial:<menuId>] in the config)
+#
+# Requires the mx4d daemon to be running (it lazy-launches the overlay).
+exec dbus-send --session \
+    --dest=dev.usidiamond.mx4 /dev/usidiamond/mx4 \
+    dev.usidiamond.mx4.Daemon.ShowMenu "string:${1:-default}"

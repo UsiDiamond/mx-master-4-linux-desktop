@@ -1,0 +1,55 @@
+Description: Make the overlay build against LayerShellQt 5.27 (Ubuntu 24.04 / bookworm)
+ Window::setDesiredSize(), setActivateOnShow() and setCloseOnDismissed() only
+ exist in the KF6 LayerShellQt 6.x line.  Ubuntu 24.04 LTS and Debian bookworm
+ ship the Qt6 build of LayerShellQt 5.27, whose Window lacks all three.  Gate
+ those calls on a CMake-provided version macro (MX4_LAYERSHELL_6X) and fall
+ back to sizing the QQuickWindow itself (which, with no anchors set, drives the
+ layer-shell surface size on 5.27).  Distributions on LayerShellQt 6.x keep the
+ full behaviour.
+Author: UsiDiamond <noreply@usidiamond.dev>
+Forwarded: not-needed
+Last-Update: 2026-06-24
+Index: overlay/CMakeLists.txt
+===================================================================
+--- a/overlay/CMakeLists.txt
++++ b/overlay/CMakeLists.txt
+@@ -74,6 +74,13 @@ target_link_libraries(mx4-radial PRIVATE
+ if(LayerShellQt_FOUND)
+     target_link_libraries(mx4-radial PRIVATE LayerShellQt::Interface)
+     target_compile_definitions(mx4-radial PRIVATE MX4_HAVE_LAYERSHELL=1)
++    # setDesiredSize()/setActivateOnShow()/setCloseOnDismissed() only exist in
++    # the LayerShellQt 6.x (KF6) line; the 5.x build shipped by Ubuntu 24.04 /
++    # Debian bookworm lacks them. Expose the major version so the source can
++    # fall back to sizing the window directly.
++    if(LayerShellQt_VERSION VERSION_GREATER_EQUAL 6.0)
++        target_compile_definitions(mx4-radial PRIVATE MX4_LAYERSHELL_6X=1)
++    endif()
+ endif()
+ 
+ # --- Install --------------------------------------------------------------
+Index: overlay/src/PlatformWindow.cpp
+===================================================================
+--- a/overlay/src/PlatformWindow.cpp
++++ b/overlay/src/PlatformWindow.cpp
+@@ -79,10 +79,21 @@ void PlatformWindow::configureWayland(QQ
+     // arrows). KeyboardInteractivityNone would leave us deaf to keys.
+     ls->setKeyboardInteractivity(
+         LayerShellQt::Window::KeyboardInteractivityOnDemand);
++#ifdef MX4_LAYERSHELL_6X
+     ls->setActivateOnShow(true);
+     ls->setScope(QStringLiteral("mx4-radial"));
+     ls->setCloseOnDismissed(false);
+     ls->setDesiredSize(desiredSize);
++#else
++    // LayerShellQt 5.x: setActivateOnShow()/setCloseOnDismissed()/
++    // setDesiredSize() do not exist. setScope() does; keep it. With no
++    // anchors set the compositor takes the surface size from the QWindow, so
++    // size the window directly.
++    ls->setScope(QStringLiteral("mx4-radial"));
++    window->setWidth(desiredSize.width());
++    window->setHeight(desiredSize.height());
++    window->setMinimumSize(desiredSize);
++#endif
+     qCInfo(lcPlatform) << "configured Wayland layer-shell overlay (centered)";
+ #else
+     Q_UNUSED(desiredSize);

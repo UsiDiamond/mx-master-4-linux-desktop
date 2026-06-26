@@ -1,0 +1,20 @@
+{
+    "KPackageStructure": "KWin/Script",
+    "KPlugin": {
+        "Id": "mx4-focus-bridge",
+        "Name": "MX Master 4 Focus Bridge",
+        "Description": "Bridges KWin window-activation events to the mx4 daemon for native-Wayland focus haptics.",
+        "Icon": "input-mouse",
+        "Authors": [
+            {
+                "Name": "UsiDiamond",
+                "Email": "noreply@usidiamond.dev"
+            }
+        ],
+        "License": "MIT",
+        "Version": "0.1.0",
+        "EnabledByDefault": false
+    },
+    "X-Plasma-API": "javascript",
+    "X-Plasma-MainScript": "code/main.js"
+}

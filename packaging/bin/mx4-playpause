@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# mx4-playpause — toggle play/pause on the active MPRIS media player without
+# requiring playerctl. Mirrors a desktop media key: it pauses/resumes browser
+# video (YouTube), music players, etc. even when the player is NOT focused,
+# because it talks to the player's MPRIS interface over the session bus.
+#
+# Strategy: enumerate org.mpris.MediaPlayer2.* names, prefer the one currently
+# "Playing" (so a toggle pauses what you can hear), else fall back to the first
+# available player, and call Player.PlayPause on it. Uses qdbus6/qdbus when
+# present, otherwise dbus-send — both ship with a normal desktop.
+#
+# Bind it from the radial menu (or any hotkey): a bare `mx4-playpause`.
+set -euo pipefail
+
+QDBUS="$(command -v qdbus6 || command -v qdbus || true)"
+
+# Print every MPRIS player bus name, one per line (whitespace-trimmed).
+list_players() {
+    if [ -n "${QDBUS}" ]; then
+        "${QDBUS}" 2>/dev/null | grep -o 'org\.mpris\.MediaPlayer2\.[^ ]*' || true
+    else
+        dbus-send --session --type=method_call --print-reply \
+            --dest=org.freedesktop.DBus /org/freedesktop/DBus \
+            org.freedesktop.DBus.ListNames 2>/dev/null \
+          | grep -o 'org\.mpris\.MediaPlayer2\.[^"]*' || true
+    fi
+}
+
+# Echo a player's PlaybackStatus (Playing|Paused|Stopped|"").
+status() {
+    if [ -n "${QDBUS}" ]; then
+        "${QDBUS}" "$1" /org/mpris/MediaPlayer2 \
+            org.mpris.MediaPlayer2.Player.PlaybackStatus 2>/dev/null || true
+    else
+        dbus-send --session --print-reply --dest="$1" /org/mpris/MediaPlayer2 \
+            org.freedesktop.DBus.Properties.Get \
+            string:org.mpris.MediaPlayer2.Player string:PlaybackStatus 2>/dev/null \
+          | grep -o '"[A-Za-z]*"' | tail -1 | tr -d '"' || true
+    fi
+}
+
+# Toggle play/pause on a player.
+playpause() {
+    if [ -n "${QDBUS}" ]; then
+        "${QDBUS}" "$1" /org/mpris/MediaPlayer2 \
+            org.mpris.MediaPlayer2.Player.PlayPause
+    else
+        dbus-send --session --dest="$1" /org/mpris/MediaPlayer2 \
+            org.mpris.MediaPlayer2.Player.PlayPause
+    fi
+}
+
+players="$(list_players)"
+if [ -z "${players}" ]; then
+    echo "mx4-playpause: no MPRIS media player on the session bus" >&2
+    exit 1
+fi
+
+# MPRIS bus names never contain spaces, so word-splitting is safe here.
+target=""
+first=""
+for p in ${players}; do
+    [ -z "${first}" ] && first="${p}"
+    if [ "$(status "${p}")" = "Playing" ]; then
+        target="${p}"
+        break
+    fi
+done
+[ -z "${target}" ] && target="${first}"
+
+playpause "${target}"

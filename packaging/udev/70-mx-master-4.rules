@@ -1,0 +1,35 @@
+# 70-mx-master-4.rules — grant the active local user access to the Logitech
+# receiver / mouse hidraw node that carries the HID++ interface, so the mx4
+# daemon can talk to the MX Master 4 without root.
+#
+# Install: sudo cp packaging/udev/70-mx-master-4.rules /etc/udev/rules.d/
+#          sudo udevadm control --reload
+#          sudo udevadm trigger --subsystem-match=hidraw
+# (or simply re-plug the Bolt receiver). install.sh does this for you.
+#
+# Scope & safety:
+#   * SUBSYSTEM=="hidraw" only — never touches the generic hidraw permissions.
+#   * Matched to Logitech (VID 046d) only, via the parent USB device's
+#     idVendor (covers the Bolt receiver, the older Unifying receiver, and a
+#     directly-connected/Bluetooth MX Master 4).
+#   * TAG+="uaccess" — logind grants the *currently-active local session user*
+#     a per-session ACL (Solaar's mechanism). This is NOT world-writable: only
+#     the user physically logged in at the seat gets access, and it is revoked
+#     on logout. No static group, no 0666.
+#
+# The hidraw node number is volatile across reboots/reconnects; this rule is
+# keyed on the vendor id, never on a node number, so it always matches.
+
+ACTION=="remove", GOTO="mx4_end"
+SUBSYSTEM!="hidraw", GOTO="mx4_end"
+
+# USB-attached Logitech receivers (Bolt / Unifying) — the idVendor lives on an
+# ancestor usb_device.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="046d", TAG+="uaccess"
+
+# Bluetooth-attached MX Master 4 — the Logitech vendor id surfaces in the HID
+# device's modalias / phys instead of a USB idVendor; match the HID id prefix
+# (0005 = Bluetooth bus, 046D = Logitech).
+SUBSYSTEM=="hidraw", KERNELS=="*0005:0000046D:*", TAG+="uaccess"
+
+LABEL="mx4_end"

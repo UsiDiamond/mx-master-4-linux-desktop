@@ -1,0 +1,7 @@
+# The upstream tree is the whole git checkout; ignore VCS/build cruft and the
+# packaging dir itself when (re)generating the upstream tarball locally.
+tar-ignore = ".git"
+tar-ignore = "*/build"
+tar-ignore = "*/__pycache__"
+tar-ignore = "*.pyc"
+tar-ignore = ".pytest_cache"

@@ -1,0 +1,24 @@
+[Unit]
+Description=MX Master 4 radial menu overlay (resident, shown on demand by mx4desktop)
+Documentation=https://github.com/UsiDiamond/mx-master-4-linux-desktop
+# Start once a graphical session is up: the overlay needs the Wayland/X11
+# display and the session D-Bus bus to register dev.usidiamond.mx4.Overlay.
+After=graphical-session.target
+PartOf=graphical-session.target
+# The daemon drives this overlay over D-Bus; co-start them, but the overlay is
+# independently useful (and a daemon restart must not drop the overlay surface),
+# so this is a soft Wants, not a hard Requires.
+Wants=mx4desktop.service
+
+[Service]
+Type=simple
+# Service mode (NO --demo): owns dev.usidiamond.mx4.Overlay and waits for the
+# daemon's Show(menuId). Installed by install.sh to ~/.local/bin/mx4-radial.
+ExecStart=%h/.local/bin/mx4-radial
+Restart=on-failure
+RestartSec=3
+# Light hardening (user-service friendly).
+NoNewPrivileges=true
+
+[Install]
+WantedBy=graphical-session.target

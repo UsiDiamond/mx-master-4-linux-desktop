@@ -1,0 +1,23 @@
+mx-master-4-desktop (0.1.0-2) unstable; urgency=medium
+
+  * Install the new mx4-playpause MPRIS helper (debian/rules) so the radial
+    "Play / Pause" segment works from the packaged install.
+  * control: depend on dbus-bin | dbus (mx4-show / mx4-playpause use dbus-send)
+    and recommend qdbus-qt6 (provides the preferred qdbus6 fast path).
+  * control: recommend liblayershellqtinterface6 | liblayershellqtinterface5 so
+    the Wayland layer-shell runtime is pulled on trixie (6.x) as well as
+    bookworm / Ubuntu 24.04 (5.x).
+  * control: add qml6-module-qtquick-templates (QtQuick.Controls dependency).
+
+ -- UsiDiamond <noreply@usidiamond.dev>  Wed, 25 Jun 2026 00:00:00 +0000
+
+mx-master-4-desktop (0.1.0-1) unstable; urgency=medium
+
+  * Initial Debian/Ubuntu packaging.
+    - Builds the mx4-radial overlay and mx4-config GUI with CMake + Qt6.
+    - Installs the mx4d Python daemon onto the system python (no venv/pip)
+      via a /usr/bin/mx4d launcher.
+    - Ships the udev rule, portable XDG autostart entry, systemd user units,
+      and the Plasma-Wayland KWin focus-bridge script (as data, not enabled).
+
+ -- UsiDiamond <noreply@usidiamond.dev>  Wed, 24 Jun 2026 00:00:00 +0000

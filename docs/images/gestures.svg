@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 250" width="920" height="250" font-family="Inter,Segoe UI,sans-serif">
+<rect width="920" height="250" rx="16" fill="#0e1118"/>
+<rect x="28" y="40" width="200" height="170" rx="14" fill="#161a26" stroke="#338cf255" stroke-width="1.5"/>
+<circle cx="62" cy="74" r="16" fill="#338cf2"/>
+<text x="62" y="80" text-anchor="middle" fill="#0e1118" font-size="18" font-weight="800">1</text>
+<text x="48" y="132" fill="#f2f4f8" font-size="22" font-weight="700">Tap</text>
+<text x="48" y="162" fill="#338cf2" font-size="18" font-weight="600">Radial menu</text>
+<text x="48" y="190" fill="#aeb6c4" font-size="15">quick press</text>
+<rect x="252" y="40" width="200" height="170" rx="14" fill="#161a26" stroke="#9b6cf055" stroke-width="1.5"/>
+<circle cx="286" cy="74" r="16" fill="#9b6cf0"/>
+<text x="286" y="80" text-anchor="middle" fill="#0e1118" font-size="18" font-weight="800">2</text>
+<text x="272" y="132" fill="#f2f4f8" font-size="22" font-weight="700">Hold</text>
+<text x="272" y="162" fill="#9b6cf0" font-size="18" font-weight="600">Media panel</text>
+<text x="272" y="190" fill="#aeb6c4" font-size="15">press and wait</text>
+<rect x="476" y="40" width="200" height="170" rx="14" fill="#161a26" stroke="#2bb67355" stroke-width="1.5"/>
+<circle cx="510" cy="74" r="16" fill="#2bb673"/>
+<text x="510" y="80" text-anchor="middle" fill="#0e1118" font-size="18" font-weight="800">3</text>
+<text x="496" y="132" fill="#f2f4f8" font-size="22" font-weight="700">Slide</text>
+<text x="496" y="162" fill="#2bb673" font-size="18" font-weight="600">Flick-to-pick</text>
+<text x="496" y="190" fill="#aeb6c4" font-size="15">press + drag</text>
+<rect x="700" y="40" width="200" height="170" rx="14" fill="#161a26" stroke="#e0913c55" stroke-width="1.5"/>
+<circle cx="734" cy="74" r="16" fill="#e0913c"/>
+<text x="734" y="80" text-anchor="middle" fill="#0e1118" font-size="18" font-weight="800">4</text>
+<text x="720" y="132" fill="#f2f4f8" font-size="22" font-weight="700">Hold + Slide</text>
+<text x="720" y="162" fill="#e0913c" font-size="18" font-weight="600">Seek scrub</text>
+<text x="720" y="190" fill="#aeb6c4" font-size="15">drag on media</text>
+</svg>

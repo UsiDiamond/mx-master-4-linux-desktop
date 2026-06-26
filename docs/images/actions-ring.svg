@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 560" width="560" height="560" font-family="Inter,Segoe UI,sans-serif">
+<defs><filter id="g" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000" flood-opacity="0.45"/></filter><radialGradient id="hub" cx="50%" cy="40%" r="70%"><stop offset="0%" stop-color="#1d2335"/><stop offset="100%" stop-color="#11151f"/></radialGradient></defs>
+<circle cx="280.0" cy="280.0" r="258" fill="#0e1118" opacity="0.0"/>
+<path d="M163.6 58.8 A250 250 0 0 1 396.4 58.8 L321.0 202.1 A88 88 0 0 0 239.0 202.1 Z" fill="#338cf2e6" stroke="#338cf2" stroke-width="2.5" filter="url(#g)"/>
+<text x="280.0" y="116.0" text-anchor="middle" fill="#ffffff" font-size="22" font-weight="700">Firefox</text>
+<path d="M413.4 68.6 A250 250 0 0 1 529.8 270.2 L367.9 276.5 A88 88 0 0 0 327.0 205.6 Z" fill="#ffffff14" stroke="#ffffff22" stroke-width="1" filter="url(#g)"/>
+<text x="426.4" y="200.5" text-anchor="middle" fill="#f2f4f8" font-size="22" font-weight="500">Terminal</text>
+<path d="M529.8 289.8 A250 250 0 0 1 413.4 491.4 L327.0 354.4 A88 88 0 0 0 367.9 283.5 Z" fill="#ffffff14" stroke="#ffffff22" stroke-width="1" filter="url(#g)"/>
+<text x="426.4" y="369.5" text-anchor="middle" fill="#f2f4f8" font-size="22" font-weight="500">Files</text>
+<path d="M396.4 501.2 A250 250 0 0 1 163.6 501.2 L239.0 357.9 A88 88 0 0 0 321.0 357.9 Z" fill="#ffffff14" stroke="#ffffff22" stroke-width="1" filter="url(#g)"/>
+<text x="280.0" y="454.0" text-anchor="middle" fill="#f2f4f8" font-size="22" font-weight="500">Media</text>
+<path d="M146.6 491.4 A250 250 0 0 1 30.2 289.8 L192.1 283.5 A88 88 0 0 0 233.0 354.4 Z" fill="#ffffff14" stroke="#ffffff22" stroke-width="1" filter="url(#g)"/>
+<text x="133.6" y="369.5" text-anchor="middle" fill="#f2f4f8" font-size="22" font-weight="500">Lock</text>
+<path d="M30.2 270.2 A250 250 0 0 1 146.6 68.6 L233.0 205.6 A88 88 0 0 0 192.1 276.5 Z" fill="#ffffff14" stroke="#ffffff22" stroke-width="1" filter="url(#g)"/>
+<text x="133.6" y="200.5" text-anchor="middle" fill="#f2f4f8" font-size="22" font-weight="500">Settings</text>
+<circle cx="280.0" cy="280.0" r="80" fill="url(#hub)" stroke="#ffffff30" stroke-width="1.5" filter="url(#g)"/>
+<text x="280.0" y="276.0" text-anchor="middle" fill="#f2f4f8" font-size="20" font-weight="700">Task</text>
+<text x="280.0" y="300.0" text-anchor="middle" fill="#aeb6c4" font-size="16">Manager</text>
+</svg>

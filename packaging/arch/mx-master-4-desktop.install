@@ -1,0 +1,58 @@
+# post-install / post-upgrade / post-remove hooks for mx-master-4-desktop
+
+post_install() {
+    # Reload udev so the uaccess rule applies without a reboot. Re-plug the
+    # Bolt/Unifying receiver (or reconnect Bluetooth) afterwards if access is
+    # still denied to the current session.
+    udevadm control --reload >/dev/null 2>&1 || true
+    udevadm trigger --subsystem-match=hidraw >/dev/null 2>&1 || true
+
+    cat <<'MSG'
+
+mx-master-4-desktop installed. Quick start:
+
+  * Settings GUI:   mx4-config   (or "MX Master 4 Settings" in your menu)
+  * The daemon (mx4d) autostarts at login via /etc/xdg/autostart on EVERY
+    desktop & init. It lazy-launches the radial overlay on demand.
+  * Helpers (bind to a hotkey or a radial segment):
+      mx4-show         open the Actions Ring without diverting a mouse button
+      mx4-playpause    toggle play/pause on the active MPRIS player (qdbus6)
+
+  Start it now without logging out:
+      mx4d --verbose &          # or, on systemd:
+      systemctl --user enable --now mx4desktop.service mx4-overlay.service
+
+  systemd boxes only: user units live in /usr/lib/systemd/user. Enable hint:
+      systemctl --user daemon-reload
+      systemctl --user enable --now mx4desktop.service mx4-overlay.service
+  (If you prefer the portable autostart, do nothing — it is already active.)
+
+  Plasma-Wayland focus haptics (OPTIONAL, opt-in): the KWin focus-bridge ships
+  as data in /usr/share/kwin/scripts/mx4-focus-bridge but is NOT enabled. To
+  enable on a Plasma-Wayland session:
+      kwriteconfig6 --file kwinrc --group Plugins --key mx4-focus-bridgeEnabled true
+      qdbus6 org.kde.KWin /KWin reconfigure
+  (LXQt/X11 sessions need nothing — native _NET_ACTIVE_WINDOW focus is complete.)
+
+  Hardware access uses a uaccess udev rule (Logitech VID 046d). If the device
+  is busy/denied, re-plug the receiver so the new ACL is picked up.
+
+MSG
+}
+
+post_upgrade() {
+    udevadm control --reload >/dev/null 2>&1 || true
+    udevadm trigger --subsystem-match=hidraw >/dev/null 2>&1 || true
+    # systemd user units are per-user; a root pacman hook cannot reload them.
+    # They are picked up on the next `systemctl --user daemon-reload` or login.
+    echo "mx-master-4-desktop upgraded. Restart mx4d (or re-login) to pick up changes."
+    echo "  systemd users: run 'systemctl --user daemon-reload' to refresh the units."
+}
+
+post_remove() {
+    udevadm control --reload >/dev/null 2>&1 || true
+    cat <<'MSG'
+mx-master-4-desktop removed. Per-user config in ~/.config/mx4desktop was left
+untouched; delete it manually if you want a clean slate.
+MSG
+}

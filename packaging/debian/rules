@@ -1,0 +1,89 @@
+#!/usr/bin/make -f
+# Debian rules for mx-master-4-desktop.
+#
+# There is no top-level CMakeLists.txt: the overlay (mx4-radial) and the config
+# GUI (mx4-config) are two independent CMake projects.  We drive each one
+# explicitly with its own build tree, then stage the Python daemon, launcher,
+# udev rule, autostart entry, systemd units and KWin script by hand.
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DH_VERBOSE = 1
+
+DESTDIR  = $(CURDIR)/debian/mx-master-4-desktop
+LIBDIR   = /usr/lib/mx4desktop
+PYTHON   = /usr/bin/python3
+
+OVERLAY_BUILD = obj-overlay
+CONFIG_BUILD  = obj-config
+
+CMAKE_FLAGS = -G Ninja \
+              -DCMAKE_INSTALL_PREFIX=/usr \
+              -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+              -DCMAKE_VERBOSE_MAKEFILE=ON
+
+%:
+	dh $@
+
+# Two separate CMake source trees -> two separate build trees.
+override_dh_auto_configure:
+	cmake -S overlay   -B $(OVERLAY_BUILD) $(CMAKE_FLAGS)
+	cmake -S config-ui -B $(CONFIG_BUILD)  $(CMAKE_FLAGS)
+
+override_dh_auto_build:
+	cmake --build $(OVERLAY_BUILD)
+	cmake --build $(CONFIG_BUILD)
+
+override_dh_auto_install:
+	DESTDIR=$(DESTDIR) cmake --install $(OVERLAY_BUILD)
+	DESTDIR=$(DESTDIR) cmake --install $(CONFIG_BUILD)
+	# --- Python daemon onto the system python path (no venv, no pip) -------
+	# Copy the whole package, then strip any byte-compiled cruft.  (Done with
+	# cp -a + find rather than a read -d '' loop, which dash -- the /bin/sh that
+	# make uses -- does not support.)
+	install -d $(DESTDIR)$(LIBDIR)
+	cp -a daemon/mx4d $(DESTDIR)$(LIBDIR)/mx4d
+	find $(DESTDIR)$(LIBDIR)/mx4d -name '__pycache__' -type d -prune -exec rm -rf {} +
+	find $(DESTDIR)$(LIBDIR)/mx4d -name '*.pyc' -delete
+	chmod -R u=rwX,go=rX $(DESTDIR)$(LIBDIR)/mx4d
+	# --- daemon launcher: system python, PYTHONPATH at the package tree ----
+	install -d $(DESTDIR)/usr/bin
+	printf '%s\n' \
+	  '#!/bin/sh' \
+	  '# mx4d launcher (system python, no venv/pip). Installed by the deb.' \
+	  'PYTHONPATH="$(LIBDIR)$${PYTHONPATH:+:$$PYTHONPATH}"' \
+	  'export PYTHONPATH' \
+	  'exec $(PYTHON) -m mx4d "$$@"' \
+	  > $(DESTDIR)/usr/bin/mx4d
+	chmod 0755 $(DESTDIR)/usr/bin/mx4d
+	install -Dm755 packaging/bin/mx4-show $(DESTDIR)/usr/bin/mx4-show
+	# mx4-playpause: MPRIS play/pause helper (qdbus6/qdbus, dbus-send fallback).
+	install -Dm755 packaging/bin/mx4-playpause $(DESTDIR)/usr/bin/mx4-playpause
+	# --- udev rule (uaccess for Logitech VID 046d) ------------------------
+	install -Dm644 packaging/udev/70-mx-master-4.rules \
+	  $(DESTDIR)/lib/udev/rules.d/70-mx-master-4.rules
+	# --- portable XDG autostart (daemon only; system Exec=mx4d on PATH) ----
+	install -Dm644 packaging/autostart/mx4desktop.desktop \
+	  $(DESTDIR)/etc/xdg/autostart/mx4desktop.desktop
+	# --- systemd user units (bonus; XDG autostart covers non-systemd) -----
+	install -Dm644 packaging/systemd/mx4desktop.service \
+	  $(DESTDIR)/usr/lib/systemd/user/mx4desktop.service
+	install -Dm644 packaging/systemd/mx4-overlay.service \
+	  $(DESTDIR)/usr/lib/systemd/user/mx4-overlay.service
+	# The packaged units use %h/.local/bin/...; for a system install the
+	# binaries are on PATH in /usr/bin, so point ExecStart there.
+	sed -i 's#%h/.local/bin/mx4d#/usr/bin/mx4d#'             $(DESTDIR)/usr/lib/systemd/user/mx4desktop.service
+	sed -i 's#%h/.local/bin/mx4-radial#/usr/bin/mx4-radial#' $(DESTDIR)/usr/lib/systemd/user/mx4-overlay.service
+	# --- KWin focus-bridge script: DATA ONLY, never enabled, never pulls --
+	#     Plasma. Plasma KWin discovers it under .../kwin/scripts/<id>.
+	install -d $(DESTDIR)/usr/share/kwin/scripts/mx4-focus-bridge
+	cp -r packaging/kwin/metadata.json packaging/kwin/contents \
+	  $(DESTDIR)/usr/share/kwin/scripts/mx4-focus-bridge/
+	# --- Solaar helper files (opt-in data; user runs setup manually) ------
+	install -d $(DESTDIR)/usr/share/mx4desktop/solaar
+	cp packaging/solaar/setup-solaar.sh packaging/solaar/mx4-rules.yaml \
+	   packaging/solaar/README.md \
+	   $(DESTDIR)/usr/share/mx4desktop/solaar/
+	chmod 0755 $(DESTDIR)/usr/share/mx4desktop/solaar/setup-solaar.sh
+
+# Nothing to test at package-build time (Qt/HID need a session + hardware).
+override_dh_auto_test:

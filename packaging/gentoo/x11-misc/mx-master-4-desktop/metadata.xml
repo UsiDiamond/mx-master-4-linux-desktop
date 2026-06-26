@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE pkgmetadata SYSTEM "https://www.gentoo.org/dtd/metadata.dtd">
+<pkgmetadata>
+	<maintainer type="person">
+		<email>noreply@usidiamond.dev</email>
+		<name>UsiDiamond</name>
+	</maintainer>
+	<longdescription lang="en">
+		Standalone Linux desktop integration for the Logitech MX Master 4: a
+		dependency-light raw-hidraw HID++ 2.0 daemon (mx4d) that fires the
+		mouse's native haptic motor and captures the haptic Actions Ring touch
+		panel as a software trigger, a Qt6/QML radial menu overlay (mx4-radial)
+		and a settings GUI (mx4-config). Init-agnostic (systemd OR
+		OpenRC/runit/s6 via a portable XDG autostart entry) and DE-aware (the
+		KWin focus-bridge is shipped as inert data, Plasma-Wayland only).
+	</longdescription>
+	<use>
+		<flag name="sound">
+			Pull in PulseAudio (pactl) or PipeWire (pw-mon) so the opt-in
+			system-sound haptic source has a monitor to read; without it that
+			one ambient source is simply disabled.
+		</flag>
+		<flag name="systemd">
+			Install the systemd user units (mx4desktop.service,
+			mx4-overlay.service). With this flag off the portable XDG autostart
+			entry handles login startup on any init.
+		</flag>
+	</use>
+	<upstream>
+		<remote-id type="github">UsiDiamond/mx-master-4-linux-desktop</remote-id>
+		<bugs-to>https://github.com/UsiDiamond/mx-master-4-linux-desktop/issues</bugs-to>
+	</upstream>
+</pkgmetadata>
