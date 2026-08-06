@@ -11,11 +11,21 @@ Plasma 6 and LXQt; the core is DE-agnostic):
 | `mx4-config` | the settings GUI | a C++/Qt6 + QML binary (CMake) |
 | config | shared INI | `~/.config/mx4desktop/config.ini`, written with sane defaults on first run |
 | udev rule | grants the session r/w on the receiver's hidraw node | `70-mx-master-4.rules` (`uaccess`, Logitech VID `046d`) |
-| autostart | portable login autostart | XDG `mx4desktop.desktop` (Exec=`mx4d`) |
+| autostart | portable login autostart | XDG `mx4desktop.desktop` (`Exec=mx4d-supervise mx4d`) |
 | KWin script | native-Wayland focus bridge | `mx4-focus-bridge` — **Plasma-Wayland-only, installed not enabled** |
 
 > **Only the daemon needs to autostart.** It lazy-launches the overlay on demand
 > (and on the Actions-Ring trigger), so you never autostart the overlay yourself.
+
+> **`mx4d-supervise`** relaunches the daemon with backoff so a device that is
+> still asleep at login (Bolt wake latency), or one that goes to sleep
+> mid-session, doesn't leave haptics dead until the next login — see the
+> comments in `packaging/autostart/mx4desktop.desktop`. `packaging/install.sh`
+> installs it to `~/.local/bin/mx4d-supervise` and rewrites `Exec=` to absolute
+> paths. **The Arch/Debian/Fedora/Gentoo packaging recipes currently ship the
+> autostart template as-is without installing `mx4d-supervise` to `/usr/bin`**,
+> so autostart from a distro package currently has no supervisor on `PATH` —
+> use `packaging/install.sh` if you hit this.
 
 ## Dependencies
 

@@ -154,8 +154,13 @@ EOF
         "${pkgdir}/usr/lib/udev/rules.d/70-mx-master-4.rules"
 
     # --- 5. portable XDG autostart (daemon only) -> /etc/xdg/autostart ---
-    # Exec=mx4d resolves on PATH (/usr/bin/mx4d). The daemon lazy-launches the
-    # overlay; we do NOT autostart mx4-radial.
+    # Shipped verbatim: Exec=mx4d-supervise mx4d (backoff wrapper around the
+    # daemon, both resolved on PATH). The daemon lazy-launches the overlay; we
+    # do NOT autostart mx4-radial.
+    # HONEST NOTE: this recipe does not install mx4d-supervise to /usr/bin, so
+    # the autostart entry currently points at a missing binary on this distro
+    # until that's added here too — see packaging/install.sh for the working
+    # (per-user) install of mx4d-supervise.
     install -Dm644 packaging/autostart/mx4desktop.desktop \
         "${pkgdir}/etc/xdg/autostart/mx4desktop.desktop"
 

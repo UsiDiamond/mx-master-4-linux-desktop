@@ -98,7 +98,8 @@ mkdir -p %{buildroot}%{mx4libdir}/mx4d
 
 # --- daemon launcher (mx4d) -------------------------------------------------
 # Runs the SYSTEM python with PYTHONPATH at the private libdir. mx4d is on PATH
-# in /usr/bin so the XDG autostart Exec=mx4d resolves with no rewrite.
+# in /usr/bin, which covers the "mx4d" half of the shipped XDG autostart entry
+# (Exec=mx4d-supervise mx4d) with no rewrite — see the autostart note below.
 cat > %{buildroot}%{_bindir}/mx4d <<EOF
 #!/usr/bin/sh
 # mx4d launcher (rpm). Runs the daemon on the system python, no virtualenv:
@@ -120,8 +121,13 @@ install -Dpm0644 packaging/udev/70-mx-master-4.rules \
     %{buildroot}%{_prefix}/lib/udev/rules.d/70-mx-master-4.rules
 
 # --- portable XDG autostart (primary, init-agnostic) ------------------------
-# System package: ship to /etc/xdg/autostart with Exec=mx4d (mx4d is on PATH).
-# Only the daemon autostarts; it lazy-launches the overlay.
+# System package: ship to /etc/xdg/autostart verbatim. Only the daemon
+# autostarts; it lazy-launches the overlay.
+# HONEST NOTE: the shipped entry is Exec=mx4d-supervise mx4d (a backoff wrapper
+# around the daemon, not bare mx4d), and this spec does NOT install
+# mx4d-supervise to %{_bindir} — so autostart via this package currently has no
+# supervisor on PATH until that's added here too. packaging/install.sh installs
+# mx4d-supervise for the per-user (non-package) install.
 install -Dpm0644 packaging/autostart/mx4desktop.desktop \
     %{buildroot}%{_sysconfdir}/xdg/autostart/mx4desktop.desktop
 

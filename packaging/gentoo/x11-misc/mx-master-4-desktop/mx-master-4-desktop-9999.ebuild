@@ -161,9 +161,13 @@ src_install() {
 	udev_dorules "${S}/packaging/udev/70-mx-master-4.rules"
 
 	# --- portable XDG autostart (PRIMARY on every init; daemon only) --------
-	# Exec=mx4d is already on PATH (/usr/bin) for a system package, so ship the
-	# entry verbatim into /etc/xdg/autostart. Only the daemon autostarts; it
+	# Shipped verbatim into /etc/xdg/autostart. Only the daemon autostarts; it
 	# lazy-launches the overlay.
+	# HONEST NOTE: the entry is Exec=mx4d-supervise mx4d (a backoff wrapper
+	# around the daemon, not bare mx4d), and this ebuild does NOT install
+	# mx4d-supervise to /usr/bin — so autostart via this package currently has
+	# no supervisor on PATH until that's added here too. packaging/install.sh
+	# installs mx4d-supervise for the per-user (non-package) install.
 	insinto /etc/xdg/autostart
 	doins "${S}/packaging/autostart/mx4desktop.desktop"
 
