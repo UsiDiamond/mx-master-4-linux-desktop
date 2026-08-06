@@ -61,7 +61,12 @@ override_dh_auto_install:
 	# --- udev rule (uaccess for Logitech VID 046d) ------------------------
 	install -Dm644 packaging/udev/70-mx-master-4.rules \
 	  $(DESTDIR)/lib/udev/rules.d/70-mx-master-4.rules
-	# --- portable XDG autostart (daemon only; system Exec=mx4d on PATH) ----
+	# --- portable XDG autostart (daemon only; shipped verbatim) ------------
+	# HONEST NOTE: the entry is Exec=mx4d-supervise mx4d (a backoff wrapper
+	# around the daemon), and this rules file does NOT install mx4d-supervise
+	# to /usr/bin — so autostart via the .deb currently has no supervisor on
+	# PATH until that's added here too. packaging/install.sh installs
+	# mx4d-supervise for the per-user (non-package) install.
 	install -Dm644 packaging/autostart/mx4desktop.desktop \
 	  $(DESTDIR)/etc/xdg/autostart/mx4desktop.desktop
 	# --- systemd user units (bonus; XDG autostart covers non-systemd) -----

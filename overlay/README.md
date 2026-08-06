@@ -51,8 +51,17 @@ The overlay **exports**:
 | bus name | `dev.usidiamond.mx4.Overlay` |
 | object | `/dev/usidiamond/mx4/Overlay` |
 | interface | `dev.usidiamond.mx4.Overlay` |
-| methods | `Show(s menuId)`, `Hide()`, `Commit(s actionId)->b`, `Activate(i index)->b` |
-| signal | `ActionChosen(s actionId)` |
+| methods | `Show(s menuId)`, `Hide()`, `ShowMedia()`, `ShowFlickRing(s menuId)`, `SetFlickVector(i dx, i dy)`, `CommitFlick()`, `ScrubSeek(i dx)`, `CommitSeek()`, `Commit(s actionId)->b`, `Activate(i index)->b` |
+| signals | `ActionChosen(s actionId)`, `Dismissed()` |
+
+`ShowMedia` raises the MPRIS media panel instead of a radial ring.
+`ShowFlickRing`/`SetFlickVector`/`CommitFlick` drive the thumb-slide
+flick-to-pick gesture (open in flick mode, highlight by slide direction,
+commit + dismiss); `ScrubSeek`/`CommitSeek` drive media seek-scrub (preview a
+seek by net horizontal slide, then apply it). The daemon calls these while the
+panel/trigger is held — see [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md).
+`Dismissed` fires whenever the overlay closes (commit, cancel, or an external
+`Hide`), so the daemon can track visibility for press-again-to-dismiss.
 
 The overlay owns its **own** name `dev.usidiamond.mx4.Overlay`, *distinct* from
 the daemon's `dev.usidiamond.mx4`, so both processes co-run cleanly: the daemon
@@ -138,6 +147,14 @@ plugin (the Kando approach); that is deliberately out of scope for v1.
 - `src/DaemonHaptics.{h,cpp}` — QtDBus haptic client (graceful no-op + debounce).
 - `src/MenuConfig.{h,cpp}` — INI loader + built-in default + task-mgr detection.
 - `src/PlatformWindow.{h,cpp}` — Wayland LayerShellQt vs X11 cursor placement.
-- `src/OverlayService.{h,cpp}` — D-Bus `Show`/`Hide`/`ActionChosen`.
+- `src/OverlayService.{h,cpp}` — the D-Bus surface: radial menu
+  (`Show`/`Hide`/`Commit`/`Activate`/`ActionChosen`), media panel (`ShowMedia`),
+  flick-to-pick + seek-scrub (`ShowFlickRing`/`SetFlickVector`/`CommitFlick`/
+  `ScrubSeek`/`CommitSeek`), and `Dismissed`.
+- `src/MprisController.{h,cpp}` — MPRIS2 client backing the media panel: finds
+  the active `org.mpris.MediaPlayer2.*` player, exposes its metadata/playback
+  state/position to QML, drives play-pause/next/previous/seek.
 - `qml/RadialMenu.qml`, `qml/Segment.qml` — the GPU-drawn ring (Shape +
   PathAngleArc), center hub, highlight, animations, pointer/keyboard input.
+- `qml/MediaPanel.qml` — the press-and-hold media-controls panel (art, title/
+  artist, transport buttons, seek bar with thumb seek-scrub).

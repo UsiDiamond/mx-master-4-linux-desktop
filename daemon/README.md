@@ -82,9 +82,17 @@ report descriptor advertises report ids `0x10`/`0x11` (the HID++ interface).
 
 ### systemd user service
 
+The real unit lives in `packaging/systemd/mx4desktop.service` and is installed
+by `packaging/install.sh` (see [`docs/INSTALL.md`](../docs/INSTALL.md)) along
+with the `~/.local/bin/mx4d` launcher it points at
+(`ExecStart=%h/.local/bin/mx4d`, `PYTHONPATH` set by the generated launcher —
+running the bare `python -m mx4d` from a unit file with no `PYTHONPATH` set
+would fail with `ModuleNotFoundError: No module named mx4d`, since this
+checkout isn't on the module search path):
+
 ```bash
-cp systemd/mx4desktop.service ~/.config/systemd/user/
-systemctl --user daemon-reload
+packaging/install.sh                       # from the repo root; installs the launcher + unit
+                                            # (runs systemctl --user daemon-reload itself)
 systemctl --user enable --now mx4desktop.service
 ```
 
@@ -103,6 +111,8 @@ the diverted panel is always restored on stop.
 | `PlayHaptic` | method | `s -> b` | Play a waveform by name or index (e.g. overlay tick). The blocking HID++ write is dispatched to the device-I/O worker; returns whether the request was accepted/queued. |
 | `SetLevel` | method | `i -> b` | Set the global haptic level (0..100). Dispatched to the device-I/O worker; returns whether the request was accepted/queued. |
 | `ShowMenu` | method | `s -> b` | Raise the radial overlay for the given menu id (empty → `[radial] default_menu`). Does exactly what an Actions-Ring press does for the overlay, so it is testable without a physical panel tap. Non-blocking. |
+| `GetCapabilities` | method | `() -> u` | Return the device's haptic capability bitmask. `mx4-config`'s `DaemonBridge` uses this to grey out waveforms the firmware doesn't support. |
+| `FocusChanged` | method | `s -> b` | Native-Wayland focus bridge: the opt-in `mx4-focus-bridge` KWin script calls this with the newly-focused app id so the daemon can drive the focus-change ambient source without `_NET_ACTIVE_WINDOW` (which pure-Wayland clients don't surface). |
 | `TriggerPressed` | signal | — | Emitted when the Actions Ring panel is pressed. |
 | `TriggerReleased` | signal | — | Emitted when the Actions Ring panel is released. |
 | `DeviceLost` | signal | — | Emitted when the MX Master 4 disappears (unplugged / powered off); the daemon then shuts down cleanly. |
@@ -170,6 +180,11 @@ waveform = HAPPY_ALERT    ; buzz played when the ring opens
 hold_threshold = 0.4      ; seconds; a press held longer counts as a "hold"
 tap_menu =                ; menu id a tap opens   (empty = the default menu)
 hold_menu =               ; menu id a hold opens  (empty = the default menu)
+flick = true              ; enable thumb-slide (flick-to-pick + media seek-scrub);
+                          ; only matters with raw-XY reporting on (Solaar
+                          ; "Mouse Gestures" mode), inert otherwise
+flick_start = 260         ; raw-sensor displacement a press must accumulate
+                          ; before it counts as a flick rather than a tap/hold
 
 [radial]
 center/command = ...      ; auto-detected task manager (see below)
@@ -217,7 +232,7 @@ Unit tests run against an in-memory fake hidraw (no hardware needed):
 
 ```bash
 cd daemon
-pytest -q        # 69 tests
+pytest -q        # 79 tests
 ```
 
 They cover request framing / func_byte math, response demux, getFeature parsing,
@@ -235,6 +250,14 @@ tell a **tap** from a **press-and-hold** — a Solaar *rule* only sees one
 activation and cannot. A tap and a hold each summon a (configurable) radial menu;
 by default both open the default ring (Task Manager center + an auto-detected
 application launcher). The hold cut-off is `[trigger] hold_threshold` seconds.
+
+While the panel is held, a **thumb-slide (flick)** is a third gesture: the
+daemon watches the raw-XY reporting for a slide past `[trigger] flick_start`
+displacement and drives the overlay's flick-to-pick ring (or the media panel's
+seek-scrub) instead of a plain hold. Gated by `[trigger] flick`; see the root
+[`README.md`](../README.md#enable-flick--seek-scrub) for the raw-XY reporting
+prerequisite (Solaar "Mouse Gestures" mode) and `tests/test_daemon.py` for the
+flick/seek-scrub state-transition coverage.
 
 **Only one process can own the divert.** The daemon cheaply scans `/proc` for
 Solaar (never importing `logitech_receiver`; `False` when absent), and:

@@ -80,8 +80,9 @@ connection (and so it can hold a Wayland surface the daemon should not).
 | Unit | Role |
 |---|---|
 | `main.cpp` | app wiring; per-`Show` recreates the `QQuickView` so the Wayland surface role is fresh |
-| `OverlayService` | the `dev.usidiamond.mx4.Overlay` D-Bus surface (`Show`/`Hide`/`Commit`/`Activate`) |
+| `OverlayService` | the `dev.usidiamond.mx4.Overlay` D-Bus surface — radial menu (`Show`/`Hide`/`Commit`/`Activate`) plus the media panel and flick-to-pick/seek-scrub members (`ShowMedia`/`ShowFlickRing`/`SetFlickVector`/`CommitFlick`/`ScrubSeek`/`CommitSeek`), and the `Dismissed` signal |
 | `RadialController` | QML-facing model: segments, highlight from pointer angle / keyboard, commit → launch |
+| `MprisController` | MPRIS2 client backing the media panel: finds the active player, exposes metadata/playback state/position to QML, drives play-pause/next/previous/seek |
 | `MenuConfig` | load the `[radial]` menu from the shared INI (or a built-in default) |
 | `PlatformWindow` | backend setup: LayerShellQt (Wayland), at-cursor `Qt::Tool` (X11), or fallback |
 | `DaemonHaptics` | thin QtDBus client that asks the daemon to buzz on hover/commit |
@@ -98,11 +99,17 @@ other** — these signatures are the integration contract.
 | Process | Bus name | Object | Members |
 |---|---|---|---|
 | Daemon | `dev.usidiamond.mx4` | `/dev/usidiamond/mx4` | `PlayHaptic(s)→b`, `SetLevel(i)→b`, `ShowMenu(s)→b`, `GetCapabilities()→u`, `FocusChanged(s)→b`; signals `TriggerPressed()`, `TriggerReleased()`, `DeviceLost()` |
-| Overlay | `dev.usidiamond.mx4.Overlay` | `/dev/usidiamond/mx4/Overlay` | `Show(s menuId)`, `Hide()`, `Commit(s actionId)→b`, `Activate(i index)→b`; signal `ActionChosen(s)` |
+| Overlay | `dev.usidiamond.mx4.Overlay` | `/dev/usidiamond/mx4/Overlay` | `Show(s menuId)`, `Hide()`, `ShowMedia()`, `ShowFlickRing(s menuId)`, `SetFlickVector(i dx, i dy)`, `CommitFlick()`, `ScrubSeek(i dx)`, `CommitSeek()`, `Commit(s actionId)→b`, `Activate(i index)→b`; signals `ActionChosen(s)`, `Dismissed()` |
 
 `ShowMenu` exposes the exact panel-press path over D-Bus, so the full
 show → hover → commit → launch chain is testable **without a physical tap**
 (`Commit`/`Activate` likewise drive the overlay programmatically on Wayland).
+`ShowMedia` raises the MPRIS media panel instead of a radial ring;
+`ShowFlickRing`/`SetFlickVector`/`CommitFlick` drive the thumb-slide
+flick-to-pick gesture, and `ScrubSeek`/`CommitSeek` drive media seek-scrub —
+both driven by the daemon while the panel/trigger is held. `Dismissed` fires
+whenever the overlay closes (commit, cancel, or an external `Hide`), so the
+daemon can track visibility for press-again-to-dismiss.
 
 ---
 
